@@ -143,3 +143,9 @@ NautilusQueryRecursive location_settings_search_get_recursive (void);
 NautilusQueryRecursive location_settings_search_get_recursive_for_location (GFile *location);
 
 gboolean nautilus_file_system_is_remote (const char *file_system);
+
+GFile* rename_file_to_tmp (GFile        *file,
+                           gchar        *tmpl,
+                           GCancellable *cancellable,
+                           GError       **error);
+
