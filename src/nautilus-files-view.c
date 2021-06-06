@@ -73,7 +73,7 @@
 #include "nautilus-metadata.h"
 #include "nautilus-mime-actions.h"
 #include "nautilus-module.h"
-#include "nautilus-new-folder-dialog-controller.h"
+#include "nautilus-new-item-dialog-controller.h"
 #include "nautilus-previewer.h"
 #include "nautilus-profile.h"
 #include "nautilus-program-choosing.h"
@@ -176,7 +176,7 @@ typedef struct
     NautilusQuery *search_query;
 
     NautilusRenameFilePopoverController *rename_file_controller;
-    NautilusNewFolderDialogController *new_folder_controller;
+    NautilusNewItemDialogController *new_folder_controller;
     NautilusCompressDialogController *compress_controller;
 
     gboolean supports_zooming;
@@ -2062,7 +2062,7 @@ new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController 
     priv = nautilus_files_view_get_instance_private (view);
 
     with_selection =
-        nautilus_new_folder_dialog_controller_get_with_selection (priv->new_folder_controller);
+        nautilus_new_item_dialog_controller_get_with_selection (priv->new_folder_controller);
 
     data = new_folder_data_new (view, with_selection);
 
@@ -2093,8 +2093,8 @@ new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController 
 }
 
 static void
-new_folder_dialog_controller_on_cancelled (NautilusNewFolderDialogController *controller,
-                                           gpointer                           user_data)
+new_folder_dialog_controller_on_cancelled (NautilusNewItemDialogController *controller,
+                                           gpointer                         user_data)
 {
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
@@ -2132,10 +2132,10 @@ nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
     }
 
     priv->new_folder_controller =
-        nautilus_new_folder_dialog_controller_new (nautilus_files_view_get_containing_window (view),
-                                                   containing_directory,
-                                                   with_selection,
-                                                   common_prefix);
+        nautilus_new_item_dialog_controller_new (nautilus_files_view_get_containing_window (view),
+                                                 containing_directory,
+                                                 with_selection,
+                                                 common_prefix);
 
     g_signal_connect (priv->new_folder_controller,
                       "name-accepted",
@@ -2314,8 +2314,8 @@ compress_dialog_controller_on_name_accepted (NautilusFileNameWidgetController *c
 }
 
 static void
-compress_dialog_controller_on_cancelled (NautilusNewFolderDialogController *controller,
-                                         gpointer                           user_data)
+compress_dialog_controller_on_cancelled (NautilusNewItemDialogController *controller,
+                                         gpointer                         user_data)
 {
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
