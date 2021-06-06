@@ -33,6 +33,8 @@ struct _NautilusNewItemDialogController
     gboolean with_selection;
 
     gulong response_handler_id;
+
+    gboolean is_create_new_file;
 };
 
 G_DEFINE_TYPE (NautilusNewItemDialogController, nautilus_new_item_dialog_controller, NAUTILUS_TYPE_FILE_NAME_WIDGET_CONTROLLER)
@@ -43,6 +45,7 @@ nautilus_new_item_dialog_controller_name_is_valid (NautilusFileNameWidgetControl
                                                    gchar                            **error_message)
 {
     gboolean is_valid;
+    gboolean is_new_file = ((NautilusNewItemDialogController *) self)->is_create_new_file;
 
     is_valid = TRUE;
     if (strlen (name) == 0)
@@ -52,28 +55,38 @@ nautilus_new_item_dialog_controller_name_is_valid (NautilusFileNameWidgetControl
     else if (strstr (name, "/") != NULL)
     {
         is_valid = FALSE;
-        *error_message = _("Folder names cannot contain “/”.");
+        *error_message = is_new_file ?
+                         _("File names cannot contain “/”.") :
+                         _("Folder names cannot contain “/”.");
     }
     else if (strcmp (name, ".") == 0)
     {
         is_valid = FALSE;
-        *error_message = _("A folder cannot be called “.”.");
+        *error_message = is_new_file ?
+                         _("A file cannot be called “.”.") :
+                         _("A folder cannot be called “.”.");
     }
     else if (strcmp (name, "..") == 0)
     {
         is_valid = FALSE;
-        *error_message = _("A folder cannot be called “..”.");
+        *error_message = is_new_file ?
+                         _("A file cannot be called “..”.") :
+                         _("A folder cannot be called “..”.");
     }
     else if (nautilus_file_name_widget_controller_is_name_too_long (self, name))
     {
         is_valid = FALSE;
-        *error_message = _("Folder name is too long.");
+        *error_message = is_new_file ?
+                         _("File name is too long.") :
+                         _("Folder name is too long.");
     }
 
     if (is_valid && g_str_has_prefix (name, "."))
     {
         /* We must warn about the side effect */
-        *error_message = _("Folders with “.” at the beginning of their name are hidden.");
+        *error_message = is_new_file ?
+                         _("Files with “.” at the beginning of their name are hidden.") :
+                         _("Folders with “.” at the beginning of their name are hidden.");
         return TRUE;
     }
 
@@ -99,7 +112,8 @@ NautilusNewItemDialogController *
 nautilus_new_item_dialog_controller_new (GtkWindow         *parent_window,
                                          NautilusDirectory *destination_directory,
                                          gboolean           with_selection,
-                                         gchar             *initial_name)
+                                         gchar             *initial_name,
+                                         gboolean           is_new_file)
 {
     NautilusNewItemDialogController *self;
     g_autoptr (GtkBuilder) builder = NULL;
@@ -143,10 +157,32 @@ nautilus_new_item_dialog_controller_new (GtkWindow         *parent_window,
     }
 
     gtk_button_set_label (GTK_BUTTON (activate_button), _("Create"));
-    gtk_label_set_text (GTK_LABEL (name_label), _("Folder name"));
-    gtk_window_set_title (GTK_WINDOW (new_item_dialog), _("New Folder"));
+
+    if (is_new_file)
+    {
+        gtk_label_set_text (GTK_LABEL (name_label), _("File name"));
+        gtk_window_set_title (GTK_WINDOW (new_item_dialog), _("New Document"));
+    }
+    else
+    {
+        gtk_label_set_text (GTK_LABEL (name_label), _("Folder name"));
+        gtk_window_set_title (GTK_WINDOW (new_item_dialog), _("New Folder"));
+    }
 
     gtk_widget_show_all (new_item_dialog);
+
+    if (is_new_file)
+    {
+        gint start_offset;
+        gint end_offset;
+
+        eel_filename_get_rename_region (gtk_entry_get_text (GTK_ENTRY (name_entry)),
+                                        &start_offset, &end_offset);
+        gtk_editable_select_region (GTK_EDITABLE (name_entry),
+                                    start_offset, end_offset);
+    }
+
+    self->is_create_new_file = is_new_file;
 
     return self;
 }

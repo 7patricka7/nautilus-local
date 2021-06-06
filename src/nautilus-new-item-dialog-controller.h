@@ -31,6 +31,7 @@ G_DECLARE_FINAL_TYPE (NautilusNewItemDialogController, nautilus_new_item_dialog_
 NautilusNewItemDialogController * nautilus_new_item_dialog_controller_new (GtkWindow         *parent_window,
                                                                            NautilusDirectory *destination_directory,
                                                                            gboolean           with_selection,
-                                                                           gchar             *initial_name);
+                                                                           gchar             *initial_name,
+                                                                           gboolean           is_new_file);
 
 gboolean nautilus_new_item_dialog_controller_get_with_selection (NautilusNewItemDialogController *controller);
