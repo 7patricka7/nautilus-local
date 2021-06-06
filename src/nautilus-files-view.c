@@ -2181,7 +2181,7 @@ nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
     g_autoptr (NautilusDirectory) containing_directory = NULL;
     NautilusFilesViewPrivate *priv;
     g_autofree char *uri = NULL;
-    g_autofree char *common_prefix = NULL;
+    g_autofree char *proposed_name = NULL;
 
     priv = nautilus_files_view_get_instance_private (view);
 
@@ -2197,14 +2197,18 @@ nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
     {
         g_autolist (NautilusFile) selection = NULL;
         selection = nautilus_view_get_selection (NAUTILUS_VIEW (view));
-        common_prefix = nautilus_get_common_filename_prefix (selection, MIN_COMMON_FILENAME_PREFIX_LENGTH);
+        proposed_name = nautilus_get_common_filename_prefix (selection, MIN_COMMON_FILENAME_PREFIX_LENGTH);
+    }
+    else
+    {
+        proposed_name = generate_name_for_new_item (_("Untitled Folder"), containing_directory, FALSE);
     }
 
     priv->new_folder_controller =
         nautilus_new_item_dialog_controller_new (nautilus_files_view_get_containing_window (view),
                                                  containing_directory,
                                                  with_selection,
-                                                 common_prefix,
+                                                 proposed_name,
                                                  FALSE);
 
     g_signal_connect (priv->new_folder_controller,
