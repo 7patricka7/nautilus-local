@@ -435,10 +435,20 @@ ext_strings_func (NautilusFileUndoInfo  *info,
     NautilusFileUndoInfoExt *self = NAUTILUS_FILE_UNDO_INFO_EXT (info);
     NautilusFileUndoOp op_type = nautilus_file_undo_info_get_op_type (info);
     gint count = nautilus_file_undo_info_get_item_count (info);
-    gchar *name = NULL, *source, *destination;
+    g_autofree gchar *name = NULL;
+    g_autofree gchar *source = NULL;
+    g_autofree gchar *destination = NULL;
 
     source = g_file_get_path (self->src_dir);
-    destination = g_file_get_path (self->dest_dir);
+
+    if (self->dest_dir == NULL)
+    {
+        g_assert (op_type == NAUTILUS_FILE_UNDO_OP_DUPLICATE);
+    }
+    else
+    {
+        destination = g_file_get_path (self->dest_dir);
+    }
 
     if (count <= 1)
     {
@@ -528,7 +538,7 @@ ext_strings_func (NautilusFileUndoInfo  *info,
                                                  count);
             *redo_description = g_strdup_printf (ngettext ("Duplicate %d item in “%s”",
                                                            "Duplicate %d items in “%s”", count),
-                                                 count, destination);
+                                                 count, source);
 
             *undo_label = g_strdup_printf (ngettext ("_Undo Duplicate %d item",
                                                      "_Undo Duplicate %d items", count),
@@ -541,7 +551,7 @@ ext_strings_func (NautilusFileUndoInfo  *info,
         {
             *undo_description = g_strdup_printf (_("Delete “%s”"), name);
             *redo_description = g_strdup_printf (_("Duplicate “%s” in “%s”"),
-                                                 name, destination);
+                                                 name, source);
 
             *undo_label = g_strdup (_("_Undo Duplicate"));
             *redo_label = g_strdup (_("_Redo Duplicate"));
@@ -571,10 +581,6 @@ ext_strings_func (NautilusFileUndoInfo  *info,
     {
         g_assert_not_reached ();
     }
-
-    g_free (name);
-    g_free (source);
-    g_free (destination);
 }
 
 static void
@@ -588,18 +594,6 @@ ext_create_link_redo_func (NautilusFileUndoInfoExt        *self,
                                    dbus_data,
                                    file_undo_info_transfer_callback,
                                    self);
-}
-
-static void
-ext_duplicate_redo_func (NautilusFileUndoInfoExt        *self,
-                         GtkWindow                      *parent_window,
-                         NautilusFileOperationsDBusData *dbus_data)
-{
-    nautilus_file_operations_duplicate (g_queue_peek_head_link (self->sources),
-                                        parent_window,
-                                        dbus_data,
-                                        file_undo_info_transfer_callback,
-                                        self);
 }
 
 static void
@@ -641,13 +635,10 @@ ext_redo_func (NautilusFileUndoInfo           *info,
     {
         ext_move_restore_redo_func (self, parent_window, dbus_data);
     }
-    else if (op_type == NAUTILUS_FILE_UNDO_OP_COPY)
+    else if (op_type == NAUTILUS_FILE_UNDO_OP_COPY ||
+             op_type == NAUTILUS_FILE_UNDO_OP_DUPLICATE)
     {
         ext_copy_redo_func (self, parent_window, dbus_data);
-    }
-    else if (op_type == NAUTILUS_FILE_UNDO_OP_DUPLICATE)
-    {
-        ext_duplicate_redo_func (self, parent_window, dbus_data);
     }
     else if (op_type == NAUTILUS_FILE_UNDO_OP_CREATE_LINK)
     {
@@ -783,7 +774,8 @@ nautilus_file_undo_info_ext_new (NautilusFileUndoOp  op_type,
                          NULL);
 
     self->src_dir = g_object_ref (src_dir);
-    self->dest_dir = g_object_ref (target_dir);
+    if (target_dir != NULL)
+        self->dest_dir = g_object_ref (target_dir);
     self->sources = g_queue_new ();
     self->destinations = g_queue_new ();
 
