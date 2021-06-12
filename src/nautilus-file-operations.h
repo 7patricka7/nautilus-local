@@ -28,26 +28,9 @@
 #include <gnome-autoar/gnome-autoar.h>
 
 #include "nautilus-file-operations-dbus-data.h"
+#include "nautilus-file-op-callback-types.h"
 
 #define SECONDS_NEEDED_FOR_APROXIMATE_TRANSFER_RATE 1
-
-typedef void (* NautilusCopyCallback)      (GHashTable *debuting_uris,
-					    gboolean    success,
-					    gpointer    callback_data);
-typedef void (* NautilusCreateCallback)    (GFile      *new_file,
-					    gboolean    success,
-					    gpointer    callback_data);
-/*TODO: Consolidate NautilusOpCallback and NautilusDeleteCallback*/
-typedef void (* NautilusOpCallback)        (gboolean    success,
-					    gpointer    callback_data);
-typedef void (* NautilusDeleteCallback)    (gboolean   user_cancel,
-					    gpointer    callback_data);
-typedef void (* NautilusMountCallback)     (GVolume    *volume,
-					    gboolean    success,
-					    GObject    *callback_data_object);
-typedef void (* NautilusUnmountCallback)   (gpointer    callback_data);
-typedef void (* NautilusExtractCallback)   (GList    *outputs,
-                                            gpointer  callback_data);
 
 /* FIXME: int copy_action should be an enum */
 
