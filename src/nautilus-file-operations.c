@@ -248,8 +248,6 @@ G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC (SourceInfo, source_info_clear)
 #define NSEC_PER_MICROSEC 1000
 #define PROGRESS_NOTIFY_INTERVAL 100 * NSEC_PER_MICROSEC
 
-#define MAXIMUM_DISPLAYED_FILE_NAME_LENGTH 50
-
 #define IS_IO_ERROR(__error, KIND) (((__error)->domain == G_IO_ERROR && (__error)->code == G_IO_ERROR_ ## KIND))
 
 #define CANCEL _("_Cancel")
@@ -964,89 +962,6 @@ get_duplicate_name (const char *name,
     return result;
 }
 
-static gboolean
-has_invalid_xml_char (char *str)
-{
-    gunichar c;
-
-    while (*str != 0)
-    {
-        c = g_utf8_get_char (str);
-        /* characters XML permits */
-        if (!(c == 0x9 ||
-              c == 0xA ||
-              c == 0xD ||
-              (c >= 0x20 && c <= 0xD7FF) ||
-              (c >= 0xE000 && c <= 0xFFFD) ||
-              (c >= 0x10000 && c <= 0x10FFFF)))
-        {
-            return TRUE;
-        }
-        str = g_utf8_next_char (str);
-    }
-    return FALSE;
-}
-
-static gchar *
-get_basename (GFile *file)
-{
-    GFileInfo *info;
-    gchar *name, *basename, *tmp;
-    GMount *mount;
-
-    if ((mount = nautilus_get_mounted_mount_for_root (file)) != NULL)
-    {
-        name = g_mount_get_name (mount);
-        g_object_unref (mount);
-    }
-    else
-    {
-        info = g_file_query_info (file,
-                                  G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
-                                  0,
-                                  g_cancellable_get_current (),
-                                  NULL);
-        name = NULL;
-        if (info)
-        {
-            name = g_strdup (g_file_info_get_display_name (info));
-            g_object_unref (info);
-        }
-    }
-
-    if (name == NULL)
-    {
-        basename = g_file_get_basename (file);
-        if (g_utf8_validate (basename, -1, NULL))
-        {
-            name = basename;
-        }
-        else
-        {
-            name = g_uri_escape_string (basename, G_URI_RESERVED_CHARS_ALLOWED_IN_PATH, TRUE);
-            g_free (basename);
-        }
-    }
-
-    /* Some chars can't be put in the markup we use for the dialogs... */
-    if (has_invalid_xml_char (name))
-    {
-        tmp = name;
-        name = g_uri_escape_string (name, G_URI_RESERVED_CHARS_ALLOWED_IN_PATH, TRUE);
-        g_free (tmp);
-    }
-
-    /* Finally, if the string is too long, truncate it. */
-    if (name != NULL)
-    {
-        tmp = name;
-        name = eel_str_middle_truncate (tmp, MAXIMUM_DISPLAYED_FILE_NAME_LENGTH);
-        g_free (tmp);
-    }
-
-    return name;
-}
-
 static gchar *
 get_truncated_parse_name (GFile *file)
 {
@@ -1653,7 +1568,7 @@ confirm_delete_from_trash (CommonJob *job,
     {
         g_autofree gchar *basename = NULL;
 
-        basename = get_basename (files->data);
+        basename = nautilus_get_display_basename (files->data);
         prompt = g_strdup_printf (_("Are you sure you want to permanently delete “%s” "
                                     "from the trash?"), basename);
     }
@@ -1717,7 +1632,7 @@ confirm_delete_directly (CommonJob *job,
     {
         g_autofree gchar *basename = NULL;
 
-        basename = get_basename (files->data);
+        basename = nautilus_get_display_basename (files->data);
         prompt = g_strdup_printf (_("Are you sure you want to permanently delete “%s”?"),
                                   basename);
     }
@@ -1791,7 +1706,7 @@ report_delete_progress (CommonJob    *job,
             status = _("Deleting “%s”");
         }
 
-        basename = get_basename (G_FILE (delete_job->files->data));
+        basename = nautilus_get_display_basename (G_FILE (delete_job->files->data));
         nautilus_progress_info_take_status (job->progress,
                                             g_strdup_printf (status, basename));
     }
@@ -2029,7 +1944,7 @@ file_deleted_callback (GFile    *file,
                                         G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
                                         job->cancellable);
 
-    basename = get_basename (file);
+    basename = nautilus_get_display_basename (file);
 
     if (file_type == G_FILE_TYPE_DIRECTORY)
     {
@@ -2181,7 +2096,7 @@ report_trash_progress (CommonJob    *job,
             status = _("Trashed “%s”");
         }
 
-        basename = get_basename (G_FILE (delete_job->files->data));
+        basename = nautilus_get_display_basename (G_FILE (delete_job->files->data));
         nautilus_progress_info_take_status (job->progress,
                                             g_strdup_printf (status, basename));
     }
@@ -2342,7 +2257,7 @@ trash_file (CommonJob     *job,
         goto skip;
     }
 
-    basename = get_basename (file);
+    basename = nautilus_get_display_basename (file);
     /* Translators: %s is a file name */
     primary = g_strdup_printf (_("“%s” can’t be put in the trash. Do you want "
                                  "to delete it immediately?"),
@@ -3427,7 +3342,7 @@ retry:
 
             primary = get_scan_primary (source_info->op);
             details = NULL;
-            basename = get_basename (dir);
+            basename = nautilus_get_display_basename (dir);
 
             if (IS_IO_ERROR (error, PERMISSION_DENIED))
             {
@@ -3489,7 +3404,7 @@ retry:
 
         primary = get_scan_primary (source_info->op);
         details = NULL;
-        basename = get_basename (dir);
+        basename = nautilus_get_display_basename (dir);
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
             secondary = g_strdup_printf (_("The folder “%s” cannot be handled because you "
@@ -3604,7 +3519,7 @@ retry:
 
         primary = get_scan_primary (source_info->op);
         details = NULL;
-        basename = get_basename (file);
+        basename = nautilus_get_display_basename (file);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -3734,7 +3649,7 @@ retry:
             return;
         }
 
-        basename = get_basename (dest);
+        basename = nautilus_get_display_basename (dest);
         primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
         details = NULL;
 
@@ -3796,7 +3711,7 @@ retry:
     {
         g_autofree gchar *basename = NULL;
 
-        basename = get_basename (dest);
+        basename = nautilus_get_display_basename (dest);
         primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
         secondary = g_strdup (_("The destination is not a folder."));
 
@@ -3842,7 +3757,7 @@ retry:
             g_autofree gchar *basename = NULL;
             g_autofree gchar *formatted_size = NULL;
 
-            basename = get_basename (dest);
+            basename = nautilus_get_display_basename (dest);
             size_difference = required_size - free_size;
             primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
             secondary = g_strdup (_("There is not enough space on the destination."
@@ -3887,7 +3802,7 @@ retry:
     {
         g_autofree gchar *basename = NULL;
 
-        basename = get_basename (dest);
+        basename = nautilus_get_display_basename (dest);
         primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
         secondary = g_strdup (_("The destination is read-only."));
 
@@ -3985,13 +3900,13 @@ report_copy_progress (CopyMoveJob  *copy_job,
                     }
                 }
 
-                basename_dest = get_basename (G_FILE (copy_job->destination));
+                basename_dest = nautilus_get_display_basename (G_FILE (copy_job->destination));
 
                 if (copy_job->fake_display_source != NULL)
                 {
                     g_autofree gchar *basename_fake_display_source = NULL;
 
-                    basename_fake_display_source = get_basename (copy_job->fake_display_source);
+                    basename_fake_display_source = nautilus_get_display_basename (copy_job->fake_display_source);
                     tmp = g_strdup_printf (status,
                                            basename_fake_display_source,
                                            basename_dest);
@@ -4000,7 +3915,7 @@ report_copy_progress (CopyMoveJob  *copy_job,
                 {
                     g_autofree gchar *basename_data = NULL;
 
-                    basename_data = get_basename (G_FILE (copy_job->files->data));
+                    basename_data = nautilus_get_display_basename (G_FILE (copy_job->files->data));
                     tmp = g_strdup_printf (status,
                                            basename_data,
                                            basename_dest);
@@ -4022,7 +3937,7 @@ report_copy_progress (CopyMoveJob  *copy_job,
                     status = _("Duplicated “%s”");
                 }
 
-                basename = get_basename (G_FILE (copy_job->files->data));
+                basename = nautilus_get_display_basename (G_FILE (copy_job->files->data));
                 nautilus_progress_info_take_status (job->progress,
                                                     g_strdup_printf (status,
                                                                      basename));
@@ -4049,7 +3964,7 @@ report_copy_progress (CopyMoveJob  *copy_job,
                                            source_info->num_files);
                     }
 
-                    basename = get_basename (G_FILE (copy_job->destination));
+                    basename = nautilus_get_display_basename (G_FILE (copy_job->destination));
                     tmp = g_strdup_printf (status,
                                            source_info->num_files,
                                            basename);
@@ -4074,7 +3989,7 @@ report_copy_progress (CopyMoveJob  *copy_job,
                                            source_info->num_files);
                     }
 
-                    basename = get_basename (G_FILE (copy_job->destination));
+                    basename = nautilus_get_display_basename (G_FILE (copy_job->destination));
                     tmp = g_strdup_printf (status,
                                            source_info->num_files,
                                            basename);
@@ -4089,7 +4004,7 @@ report_copy_progress (CopyMoveJob  *copy_job,
                 g_autofree gchar *basename = NULL;
 
                 parent = g_file_get_parent (copy_job->files->data);
-                basename = get_basename (parent);
+                basename = nautilus_get_display_basename (parent);
                 if (files_left > 0)
                 {
                     status = ngettext ("Duplicating %'d file in “%s”",
@@ -4756,7 +4671,7 @@ retry:
 
         primary = g_strdup (_("Error while copying."));
         details = NULL;
-        basename = get_basename (src);
+        basename = nautilus_get_display_basename (src);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -4949,7 +4864,7 @@ retry:
                 primary = g_strdup (_("Error while copying."));
             }
             details = NULL;
-            basename = get_basename (src);
+            basename = nautilus_get_display_basename (src);
 
             if (IS_IO_ERROR (error, PERMISSION_DENIED))
             {
@@ -5031,7 +4946,7 @@ retry:
             primary = g_strdup (_("Error while copying."));
         }
         details = NULL;
-        basename = get_basename (src);
+        basename = nautilus_get_display_basename (src);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -5099,7 +5014,7 @@ retry:
                 *skipped_file = TRUE;
                 goto skip;
             }
-            basename = get_basename (src);
+            basename = nautilus_get_display_basename (src);
             primary = g_strdup_printf (_("Error while moving “%s”."), basename);
             secondary = g_strdup (_("Could not remove the source folder."));
             details = error->message;
@@ -5722,7 +5637,7 @@ retry:
                     goto out;
                 }
 
-                basename = get_basename (src);
+                basename = nautilus_get_display_basename (src);
                 if (copy_job->is_move)
                 {
                     primary = g_strdup_printf (_("Error while moving “%s”."), basename);
@@ -5816,7 +5731,7 @@ retry:
             g_error_free (error);
             goto out;
         }
-        basename = get_basename (src);
+        basename = nautilus_get_display_basename (src);
         primary = g_strdup_printf (_("Error while copying “%s”."), basename);
         filename = get_truncated_parse_name (dest_dir);
         secondary = g_strdup_printf (_("There was an error copying the file into %s."),
@@ -6134,7 +6049,7 @@ report_preparing_move_progress (CopyMoveJob *move_job,
     g_autofree gchar *basename = NULL;
 
     job = (CommonJob *) move_job;
-    basename = get_basename (move_job->destination);
+    basename = nautilus_get_display_basename (move_job->destination);
 
     nautilus_progress_info_take_status (job->progress,
                                         g_strdup_printf (_("Preparing to move to “%s”"),
@@ -6433,7 +6348,7 @@ retry:
             g_error_free (error);
             goto out;
         }
-        basename = get_basename (src);
+        basename = nautilus_get_display_basename (src);
         primary = g_strdup_printf (_("Error while moving “%s”."), basename);
         filename = get_truncated_parse_name (dest_dir);
         secondary = g_strdup_printf (_("There was an error moving the file into %s."),
@@ -6788,7 +6703,7 @@ report_preparing_link_progress (CopyMoveJob *link_job,
     g_autofree gchar *basename = NULL;
 
     job = (CommonJob *) link_job;
-    basename = get_basename (link_job->destination);
+    basename = nautilus_get_display_basename (link_job->destination);
     nautilus_progress_info_take_status (job->progress,
                                         g_strdup_printf (_("Creating links in “%s”"),
                                                          basename));
@@ -6943,7 +6858,7 @@ retry:
         {
             return;
         }
-        basename = get_basename (src);
+        basename = nautilus_get_display_basename (src);
         primary = g_strdup_printf (_("Error while creating link to %s."),
                                    basename);
         if (not_local)
@@ -7810,7 +7725,7 @@ retry:
             g_autofree gchar *basename = NULL;
             g_autofree gchar *parse_name = NULL;
 
-            basename = get_basename (dest);
+            basename = nautilus_get_display_basename (dest);
             if (job->make_dir)
             {
                 primary = g_strdup_printf (_("Error while creating directory %s."),
@@ -8181,7 +8096,7 @@ extract_job_on_progress (AutoarExtractor *extractor,
 
     source_file = autoar_extractor_get_source_file (extractor);
 
-    basename = get_basename (source_file);
+    basename = nautilus_get_display_basename (source_file);
     nautilus_progress_info_take_status (common->progress,
                                         g_strdup_printf (_("Extracting “%s”"),
                                                          basename));
@@ -8285,7 +8200,7 @@ extract_job_on_error (AutoarExtractor *extractor,
         return;
     }
 
-    basename = get_basename (source_file);
+    basename = nautilus_get_display_basename (source_file);
     nautilus_progress_info_take_status (extract_job->common.progress,
                                         g_strdup_printf (_("Error extracting “%s”"),
                                                          basename));
@@ -8456,7 +8371,7 @@ extract_job_on_scanned (AutoarExtractor *extractor,
     extract_job = user_data;
     total_size = autoar_extractor_get_total_size (extractor);
     source_file = autoar_extractor_get_source_file (extractor);
-    basename = get_basename (source_file);
+    basename = nautilus_get_display_basename (source_file);
 
     fsinfo = g_file_query_filesystem_info (source_file,
                                            G_FILE_ATTRIBUTE_FILESYSTEM_FREE ","
@@ -8496,7 +8411,7 @@ report_extract_final_progress (ExtractJob *extract_job,
 
     nautilus_progress_info_set_destination (extract_job->common.progress,
                                             extract_job->destination_directory);
-    basename_dest = get_basename (extract_job->destination_directory);
+    basename_dest = nautilus_get_display_basename (extract_job->destination_directory);
 
     if (total_files == 1)
     {
@@ -8504,7 +8419,7 @@ report_extract_final_progress (ExtractJob *extract_job,
         g_autofree gchar *basename = NULL;
 
         source_file = G_FILE (extract_job->source_files->data);
-        basename = get_basename (source_file);
+        basename = nautilus_get_display_basename (source_file);
         status = g_strdup_printf (_("Extracted “%s” to “%s”"),
                                   basename,
                                   basename_dest);
@@ -8730,12 +8645,12 @@ compress_job_on_progress (AutoarCompressor *compressor,
     g_autofree gchar *basename_output_file = NULL;
 
     files_left = compress_job->total_files - completed_files;
-    basename_output_file = get_basename (compress_job->output_file);
+    basename_output_file = nautilus_get_display_basename (compress_job->output_file);
     if (compress_job->total_files == 1)
     {
         g_autofree gchar *basename_data = NULL;
 
-        basename_data = get_basename (G_FILE (compress_job->source_files->data));
+        basename_data = nautilus_get_display_basename (G_FILE (compress_job->source_files->data));
         status = g_strdup_printf (_("Compressing “%s” into “%s”"),
                                   basename_data,
                                   basename_output_file);
@@ -8884,12 +8799,12 @@ compress_job_on_error (AutoarCompressor *compressor,
     char *status;
     g_autofree gchar *basename_output_file = NULL;
 
-    basename_output_file = get_basename (compress_job->output_file);
+    basename_output_file = nautilus_get_display_basename (compress_job->output_file);
     if (compress_job->total_files == 1)
     {
         g_autofree gchar *basename_data = NULL;
 
-        basename_data = get_basename (G_FILE (compress_job->source_files->data));
+        basename_data = nautilus_get_display_basename (G_FILE (compress_job->source_files->data));
         status = g_strdup_printf (_("Error compressing “%s” into “%s”"),
                                   basename_data,
                                   basename_output_file);
@@ -8925,12 +8840,12 @@ compress_job_on_completed (AutoarCompressor *compressor,
     char *status;
     g_autofree gchar *basename_output_file = NULL;
 
-    basename_output_file = get_basename (compress_job->output_file);
+    basename_output_file = nautilus_get_display_basename (compress_job->output_file);
     if (compress_job->total_files == 1)
     {
         g_autofree gchar *basename_data = NULL;
 
-        basename_data = get_basename (G_FILE (compress_job->source_files->data));
+        basename_data = nautilus_get_display_basename (G_FILE (compress_job->source_files->data));
         status = g_strdup_printf (_("Compressed “%s” into “%s”"),
                                   basename_data,
                                   basename_output_file);

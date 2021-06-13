@@ -141,3 +141,5 @@ gchar * nautilus_uri_to_native_uri (const gchar *uri);
 
 NautilusQueryRecursive location_settings_search_get_recursive (void);
 NautilusQueryRecursive location_settings_search_get_recursive_for_location (GFile *location);
+
+gchar * nautilus_get_display_basename (GFile *file);
