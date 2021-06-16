@@ -69,6 +69,7 @@
 #include "nautilus-trash-monitor.h"
 #include "nautilus-ui-utilities.h"
 #include "nautilus-window-slot.h"
+#include "nautilus-file-ops-controller.h"
 
 /* Forward and back buttons on the mouse */
 static gboolean mouse_extra_buttons = TRUE;
@@ -1067,7 +1068,7 @@ places_sidebar_drag_perform_drop_cb (GtkPlacesSidebar *sidebar,
     dest_uri = g_file_get_uri (dest_file);
     source_uri_list = build_uri_list_from_gfile_list (source_file_list);
 
-    nautilus_file_operations_copy_move (source_uri_list, dest_uri, action, GTK_WIDGET (sidebar), NULL, NULL, NULL);
+    nautilus_file_ops_controller_copy_move (source_uri_list, dest_uri, action, GTK_WIDGET (sidebar), NULL, NULL, NULL);
 
     g_free (dest_uri);
     g_list_free_full (source_uri_list, g_free);

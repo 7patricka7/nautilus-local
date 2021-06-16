@@ -32,6 +32,7 @@
 
 #define DEBUG_FLAG NAUTILUS_DEBUG_DBUS
 #include "nautilus-debug.h"
+#include "nautilus-file-ops-controller.h"
 
 struct _NautilusDBusManager
 {
@@ -234,9 +235,9 @@ handle_copy_uris_internal (const char                     **sources,
     }
 
     g_application_hold (g_application_get_default ());
-    nautilus_file_operations_copy_move (source_files, destination,
-                                        GDK_ACTION_COPY, NULL, dbus_data,
-                                        copy_move_on_finished, NULL);
+    nautilus_file_ops_controller_copy_move (source_files, destination,
+                                            GDK_ACTION_COPY, NULL, dbus_data,
+                                            copy_move_on_finished, NULL);
 
     g_list_free_full (source_files, g_free);
 }
@@ -284,9 +285,9 @@ handle_move_uris_internal (const char                     **sources,
     }
 
     g_application_hold (g_application_get_default ());
-    nautilus_file_operations_copy_move (source_files, destination,
-                                        GDK_ACTION_MOVE, NULL, dbus_data,
-                                        copy_move_on_finished, NULL);
+    nautilus_file_ops_controller_copy_move (source_files, destination,
+                                            GDK_ACTION_MOVE, NULL, dbus_data,
+                                            copy_move_on_finished, NULL);
 
     g_list_free_full (source_files, g_free);
 }

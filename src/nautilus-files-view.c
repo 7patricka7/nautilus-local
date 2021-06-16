@@ -89,6 +89,7 @@
 #include "nautilus-view-icon-controller.h"
 #include "nautilus-window.h"
 #include "nautilus-tracker-utilities.h"
+#include "nautilus-file-ops-controller.h"
 
 #ifdef HAVE_LIBPORTAL
 #include <libportal/portal.h>
@@ -3870,7 +3871,7 @@ pre_copy_move_add_files_callback (NautilusFilesView *view,
     }
 }
 
-/* This needs to be called prior to nautilus_file_operations_copy_move.
+/* This needs to be called prior to nautilus_file_ops_controller_copy_move.
  * It hooks up a signal handler to catch any icons that get added before
  * the copy_done_callback is invoked. The return value should  be passed
  * as the data for uri_copy_move_done_callback.
@@ -6857,13 +6858,13 @@ set_wallpaper_fallback (NautilusFile *file,
     target_uri = g_file_get_uri (target);
     g_object_unref (target);
     uris = g_list_prepend (NULL, nautilus_file_get_uri (file));
-    nautilus_file_operations_copy_move (uris,
-                                        target_uri,
-                                        GDK_ACTION_COPY,
-                                        GTK_WIDGET (user_data),
-                                        NULL,
-                                        wallpaper_copy_done_callback,
-                                        NULL);
+    nautilus_file_ops_controller_copy_move (uris,
+                                            target_uri,
+                                            GDK_ACTION_COPY,
+                                            GTK_WIDGET (user_data),
+                                            NULL,
+                                            wallpaper_copy_done_callback,
+                                            NULL);
     g_free (target_uri);
     g_list_free_full (uris, g_free);
 }
@@ -9135,7 +9136,7 @@ nautilus_files_view_move_copy_items (NautilusFilesView *view,
     }
     nautilus_file_unref (target_file);
 
-    nautilus_file_operations_copy_move
+    nautilus_file_ops_controller_copy_move
         (item_uris,
         target_uri, copy_action, GTK_WIDGET (view),
         NULL,
