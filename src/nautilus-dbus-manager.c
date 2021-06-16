@@ -32,6 +32,7 @@
 
 #define DEBUG_FLAG NAUTILUS_DEBUG_DBUS
 #include "nautilus-debug.h"
+#include "nautilus-file-op-helper.h"
 #include "nautilus-file-ops-controller.h"
 
 struct _NautilusDBusManager
@@ -237,7 +238,7 @@ handle_copy_uris_internal (const char                     **sources,
     g_application_hold (g_application_get_default ());
     nautilus_file_ops_controller_copy_move (source_files, destination,
                                             GDK_ACTION_COPY, NULL, dbus_data,
-                                            copy_move_on_finished, NULL);
+                                            copy_move_on_finished, NULL, FALSE);
 
     g_list_free_full (source_files, g_free);
 }
@@ -287,7 +288,7 @@ handle_move_uris_internal (const char                     **sources,
     g_application_hold (g_application_get_default ());
     nautilus_file_ops_controller_copy_move (source_files, destination,
                                             GDK_ACTION_MOVE, NULL, dbus_data,
-                                            copy_move_on_finished, NULL);
+                                            copy_move_on_finished, NULL, FALSE);
 
     g_list_free_full (source_files, g_free);
 }
@@ -421,6 +422,7 @@ handle_delete_uris_internal (const char                     **uris,
 {
     g_autolist (GFile) source_files = NULL;
     gint idx;
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
 
     for (idx = 0; uris[idx] != NULL; idx++)
     {
@@ -429,9 +431,14 @@ handle_delete_uris_internal (const char                     **uris,
     }
 
     g_application_hold (g_application_get_default ());
+
+    helper = nautilus_simple_file_op_helper_new ();
+
+    nautilus_file_op_helper_set_delete_callback (helper, delete_on_finished);
+
     nautilus_file_operations_delete_async (source_files, NULL,
                                            dbus_data,
-                                           delete_on_finished, NULL);
+                                           helper, NULL);
 }
 
 static gboolean

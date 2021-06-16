@@ -31,6 +31,7 @@
 #include "nautilus-search-directory.h"
 #include "nautilus-starred-directory.h"
 #include "nautilus-ui-utilities.h"
+#include "nautilus-file-op-helper.h"
 #include <eel/eel-glib-extensions.h>
 #include <eel/eel-string.h>
 #include <eel/eel-debug.h>
@@ -805,16 +806,19 @@ ensure_dirs_task_ready_cb (GObject      *_source,
     original_dirs = g_hash_table_get_keys (data->original_dirs_hash);
     for (l = original_dirs; l != NULL; l = l->next)
     {
+        g_autoptr (NautilusFileOpHelper) helper = NULL;
+
         original_dir = NAUTILUS_FILE (l->data);
         original_dir_location = nautilus_file_get_location (original_dir);
 
         files = g_hash_table_lookup (data->original_dirs_hash, original_dir);
         locations = locations_from_file_list (files);
+        helper = nautilus_simple_file_op_helper_new ();
 
         nautilus_file_operations_move_async (locations,
                                              original_dir_location,
                                              data->parent_window,
-                                             NULL, NULL, NULL);
+                                             NULL, helper, NULL);
 
         g_list_free_full (locations, g_object_unref);
         g_object_unref (original_dir_location);

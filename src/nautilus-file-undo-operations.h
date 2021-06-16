@@ -30,6 +30,8 @@
 
 #include "nautilus-file-operations-dbus-data.h"
 
+typedef struct _NautilusFileOpHelper NautilusFileOpHelper;
+
 typedef enum
 {
     NAUTILUS_FILE_UNDO_OP_INVALID,
@@ -105,7 +107,8 @@ G_DECLARE_FINAL_TYPE (NautilusFileUndoInfoExt, nautilus_file_undo_info_ext,
 NautilusFileUndoInfo *nautilus_file_undo_info_ext_new (NautilusFileUndoOp op_type,
                                                        gint item_count,
                                                        GFile *src_dir,
-                                                       GFile *target_dir);
+                                                       GFile *target_dir,
+                                                       NautilusFileOpHelper *helper);
 void nautilus_file_undo_info_ext_add_origin_target_pair (NautilusFileUndoInfoExt *self,
                                                          GFile                   *origin,
                                                          GFile                   *target);

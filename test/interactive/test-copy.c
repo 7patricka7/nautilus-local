@@ -3,6 +3,7 @@
 #include <src/nautilus-file-operations.h>
 #include <src/nautilus-progress-info.h>
 #include <src/nautilus-progress-info-manager.h>
+#include <nautilus-file-op-helper.h>
 
 static void
 copy_done (GHashTable *debuting_uris,
@@ -49,6 +50,7 @@ main (int   argc,
     GList *infos;
     NautilusProgressInfoManager *manager;
     NautilusProgressInfo *progress_info;
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
 
     test_init (&argc, &argv);
 
@@ -74,11 +76,14 @@ main (int   argc,
 
     manager = nautilus_progress_info_manager_dup_singleton ();
 
+    helper = nautilus_simple_file_op_helper_new ();
+    nautilus_file_op_helper_set_copy_move_callback (helper, copy_done);
+
     nautilus_file_operations_copy_async (sources,
                                          dest,
                                          GTK_WINDOW (window),
                                          NULL,
-                                         copy_done, NULL);
+                                         helper, NULL);
 
     infos = nautilus_progress_info_manager_get_all_infos (manager);
 

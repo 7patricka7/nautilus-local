@@ -1632,7 +1632,7 @@ delete_selected_files (NautilusFilesView *view)
     }
     locations = g_list_reverse (locations);
 
-    nautilus_file_operations_delete_async (locations, nautilus_files_view_get_containing_window (view), NULL, NULL, NULL);
+    nautilus_file_ops_controller_delete_async (locations, nautilus_files_view_get_containing_window (view), NULL, NULL, TRUE);
 
     g_list_free_full (locations, g_object_unref);
     nautilus_file_list_free (selection);
@@ -3871,7 +3871,7 @@ pre_copy_move_add_files_callback (NautilusFilesView *view,
     }
 }
 
-/* This needs to be called prior to nautilus_file_ops_controller_copy_move.
+/* This needs to be called prior to a copy/move op.
  * It hooks up a signal handler to catch any icons that get added before
  * the copy_done_callback is invoked. The return value should  be passed
  * as the data for uri_copy_move_done_callback.
@@ -6864,7 +6864,8 @@ set_wallpaper_fallback (NautilusFile *file,
                                             GTK_WIDGET (user_data),
                                             NULL,
                                             wallpaper_copy_done_callback,
-                                            NULL);
+                                            NULL,
+                                            FALSE);
     g_free (target_uri);
     g_list_free_full (uris, g_free);
 }
@@ -7271,7 +7272,7 @@ static gboolean
 can_paste_into_file (NautilusFile *file)
 {
     if (nautilus_file_is_directory (file) &&
-        nautilus_file_can_write (file))
+        !nautilus_file_is_filesystem_readonly (file))
     {
         return TRUE;
     }
@@ -7290,7 +7291,7 @@ can_paste_into_file (NautilusFile *file)
          *  case as can-write */
         res = (nautilus_file_get_file_type (activation_file) == G_FILE_TYPE_UNKNOWN) ||
               (nautilus_file_get_file_type (activation_file) == G_FILE_TYPE_DIRECTORY &&
-               nautilus_file_can_write (activation_file));
+               !nautilus_file_is_filesystem_readonly (activation_file));
 
         nautilus_file_unref (activation_file);
 
@@ -7519,9 +7520,22 @@ can_delete_all (GList *files)
     for (l = files; l != NULL; l = l->next)
     {
         file = l->data;
-        if (!nautilus_file_can_delete (file))
+
+        if (nautilus_file_is_filesystem_readonly (file))
         {
             return FALSE;
+        }
+
+        if (!nautilus_file_can_delete (file))
+        {
+            g_autoptr (GFile) location = NULL;
+
+            location = nautilus_file_get_location (file);
+
+            if (!g_file_is_native (location))
+            {
+                return FALSE;
+            }
         }
     }
     return TRUE;
@@ -7661,7 +7675,7 @@ real_update_actions_state (NautilusFilesView *view)
     selection_contains_starred = showing_starred_directory (view);
     selection_contains_search = nautilus_view_is_searching (NAUTILUS_VIEW (view));
     selection_is_read_only = selection_count == 1 &&
-                             (!nautilus_file_can_write (NAUTILUS_FILE (selection->data)) &&
+                             (nautilus_file_is_filesystem_readonly (NAUTILUS_FILE (selection->data)) &&
                               !nautilus_file_has_activation_uri (NAUTILUS_FILE (selection->data)));
     selection_all_in_trash = all_in_trash (selection);
     zoom_level_is_default = nautilus_files_view_is_zoom_level_default (view);
@@ -9029,7 +9043,21 @@ nautilus_files_view_is_read_only (NautilusFilesView *view)
     file = nautilus_files_view_get_directory_as_file (view);
     if (file != NULL)
     {
-        return !nautilus_file_can_write (file);
+        g_autoptr (GFile) location = NULL;
+
+        if (nautilus_file_can_write (file))
+        {
+            return FALSE;
+        }
+
+        if (nautilus_file_is_filesystem_readonly (file))
+        {
+            return TRUE;
+        }
+
+        location = nautilus_file_get_location (file);
+
+        return !g_file_is_native (location);
     }
     return FALSE;
 }
@@ -9140,7 +9168,8 @@ nautilus_files_view_move_copy_items (NautilusFilesView *view,
         (item_uris,
         target_uri, copy_action, GTK_WIDGET (view),
         NULL,
-        copy_move_done_callback, pre_copy_move (view));
+        copy_move_done_callback, pre_copy_move (view),
+        TRUE);
 }
 
 static void

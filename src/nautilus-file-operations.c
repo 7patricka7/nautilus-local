@@ -59,6 +59,7 @@
 #include "nautilus-file-undo-operations.h"
 #include "nautilus-file-undo-manager.h"
 #include "nautilus-ui-utilities.h"
+#include "nautilus-file-op-helper.h"
 
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
@@ -86,6 +87,7 @@ typedef struct
     gboolean merge_all;
     gboolean replace_all;
     gboolean delete_all;
+    NautilusFileOpHelper *helper;
 } CommonJob;
 
 typedef struct
@@ -96,8 +98,6 @@ typedef struct
     GFile *destination;
     GFile *fake_display_source;
     GHashTable *debuting_files;
-    gchar *target_name;
-    NautilusCopyCallback done_callback;
     gpointer done_callback_data;
 } CopyMoveJob;
 
@@ -107,7 +107,6 @@ typedef struct
     GList *files;
     gboolean try_trash;
     gboolean user_cancel;
-    NautilusDeleteCallback done_callback;
     gpointer done_callback_data;
 } DeleteJob;
 
@@ -974,12 +973,16 @@ get_truncated_parse_name (GFile *file)
     return eel_str_middle_truncate (parse_name, MAXIMUM_DISPLAYED_FILE_NAME_LENGTH);
 }
 
-#define op_job_new(__type, parent_window, dbus_data) ((__type *) (init_common (sizeof (__type), parent_window, dbus_data)))
+#define op_job_new(__type, parent_window, dbus_data) \
+    ((__type *) (init_common_with_simple_helper (sizeof (__type), parent_window, dbus_data)))
+#define op_job_new_with_helper(__type, parent_window, dbus_data, helper) \
+    ((__type *) (init_common (sizeof (__type), parent_window, dbus_data, helper)))
 
 static gpointer
 init_common (gsize                           job_size,
              GtkWindow                      *parent_window,
-             NautilusFileOperationsDBusData *dbus_data)
+             NautilusFileOperationsDBusData *dbus_data,
+             NautilusFileOpHelper           *helper)
 {
     CommonJob *common;
 
@@ -1001,8 +1004,21 @@ init_common (gsize                           job_size,
     common->cancellable = nautilus_progress_info_get_cancellable (common->progress);
     common->time = g_timer_new ();
     common->inhibit_cookie = 0;
+    common->helper = g_object_ref (helper);
 
     return common;
+}
+
+static gpointer
+init_common_with_simple_helper (gsize                           job_size,
+                                GtkWindow                      *parent_window,
+                                NautilusFileOperationsDBusData *dbus_data)
+{
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
+
+    helper = nautilus_simple_file_op_helper_new ();
+
+    return init_common (job_size, parent_window, dbus_data, helper);
 }
 
 static void
@@ -1047,6 +1063,8 @@ finalize_common (CommonJob *common)
 
     g_object_unref (common->progress);
     g_object_unref (common->cancellable);
+    g_object_unref (common->helper);
+
     g_free (common);
 }
 
@@ -1823,31 +1841,46 @@ typedef void (*DeleteCallback) (GFile   *file,
                                 gpointer callback_data);
 
 static gboolean
-delete_file_recursively (GFile          *file,
+delete_file_recursively (CommonJob      *job,
+                         GFile          *file,
                          GCancellable   *cancellable,
                          DeleteCallback  callback,
                          gpointer        callback_data)
 {
     gboolean success;
-    g_autoptr (GError) error = NULL;
+    NautilusFileSubopError error = { 0 };
 
     do
     {
         g_autoptr (GFileEnumerator) enumerator = NULL;
 
-        success = g_file_delete (file, cancellable, &error);
-        if (success ||
-            !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_NOT_EMPTY))
+        success = nautilus_file_op_helper_delete_file (job->helper, file, cancellable, &error);
+
+        if (success)
+        {
+            break;
+        }
+        else if (error.user_response_cancel_all)
+        {
+            g_clear_error (&error.gerror);
+
+            abort_job (job);
+
+            break;
+        }
+        else if (!g_error_matches (error.gerror, G_IO_ERROR, G_IO_ERROR_NOT_EMPTY))
         {
             break;
         }
 
-        g_clear_error (&error);
+        g_clear_error (&error.gerror);
 
-        enumerator = g_file_enumerate_children (file,
-                                                G_FILE_ATTRIBUTE_STANDARD_NAME,
-                                                G_FILE_QUERY_INFO_NONE,
-                                                cancellable, &error);
+        enumerator = nautilus_file_op_helper_enumerate_children (job->helper,
+                                                                 file,
+                                                                 G_FILE_ATTRIBUTE_STANDARD_NAME,
+                                                                 G_FILE_QUERY_INFO_NONE,
+                                                                 cancellable,
+                                                                 &error);
 
         if (enumerator)
         {
@@ -1857,7 +1890,7 @@ delete_file_recursively (GFile          *file,
 
             info = g_file_enumerator_next_file (enumerator,
                                                 cancellable,
-                                                &error);
+                                                &error.gerror);
 
             while (info != NULL)
             {
@@ -1865,20 +1898,34 @@ delete_file_recursively (GFile          *file,
 
                 child = g_file_enumerator_get_child (enumerator, info);
 
-                success = success && delete_file_recursively (child,
+                success = success && delete_file_recursively (job,
+                                                              child,
                                                               cancellable,
                                                               callback,
                                                               callback_data);
 
                 g_object_unref (info);
 
+                if (job_aborted (job))
+                {
+                    break;
+                }
+
                 info = g_file_enumerator_next_file (enumerator,
                                                     cancellable,
-                                                    &error);
+                                                    &error.gerror);
             }
         }
+        else if (error.user_response_cancel_all)
+        {
+            g_clear_error (&error.gerror);
 
-        if (error != NULL)
+            abort_job (job);
+
+            break;
+        }
+
+        if (error.gerror != NULL)
         {
             success = FALSE;
         }
@@ -1887,7 +1934,7 @@ delete_file_recursively (GFile          *file,
 
     if (callback)
     {
-        callback (file, error, callback_data);
+        callback (file, error.gerror, callback_data);
     }
 
     return success;
@@ -2035,7 +2082,8 @@ delete_files (CommonJob *job,
             continue;
         }
 
-        success = delete_file_recursively (file, job->cancellable,
+        success = delete_file_recursively (job,
+                                           file, job->cancellable,
                                            file_deleted_callback,
                                            &data);
 
@@ -2444,10 +2492,7 @@ delete_task_done (GObject      *source_object,
 
     g_list_free_full (job->files, g_object_unref);
 
-    if (job->done_callback)
-    {
-        job->done_callback (job->user_cancel, job->done_callback_data);
-    }
+    nautilus_file_op_helper_on_delete_op_done (job->common.helper, job->user_cancel, job->done_callback_data);
 
     finalize_common ((CommonJob *) job);
 
@@ -2519,6 +2564,7 @@ trash_or_delete_internal (GTask        *task,
         {
             confirmed = confirm_delete_directly (common, to_delete_files);
         }
+
         if (confirmed)
         {
             delete_files (common, to_delete_files, &files_skipped);
@@ -2548,17 +2594,16 @@ setup_delete_job (GList                          *files,
                   GtkWindow                      *parent_window,
                   NautilusFileOperationsDBusData *dbus_data,
                   gboolean                        try_trash,
-                  NautilusDeleteCallback          done_callback,
+                  NautilusFileOpHelper           *helper,
                   gpointer                        done_callback_data)
 {
     DeleteJob *job;
 
     /* TODO: special case desktop icon link files ... */
-    job = op_job_new (DeleteJob, parent_window, dbus_data);
+    job = op_job_new_with_helper (DeleteJob, parent_window, dbus_data, helper);
     job->files = g_list_copy_deep (files, (GCopyFunc) g_object_ref, NULL);
     job->try_trash = try_trash;
     job->user_cancel = FALSE;
-    job->done_callback = done_callback;
     job->done_callback_data = done_callback_data;
 
     if (g_strcmp0 (g_getenv ("RUNNING_TESTS"), "TRUE"))
@@ -2589,12 +2634,15 @@ trash_or_delete_internal_sync (GList                          *files,
 {
     GTask *task;
     DeleteJob *job;
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
+
+    helper = nautilus_simple_file_op_helper_new ();
 
     job = setup_delete_job (files,
                             parent_window,
                             dbus_data,
                             try_trash,
-                            NULL,
+                            helper,
                             NULL);
 
     task = g_task_new (NULL, NULL, NULL, job);
@@ -2612,7 +2660,7 @@ trash_or_delete_internal_async (GList                          *files,
                                 GtkWindow                      *parent_window,
                                 NautilusFileOperationsDBusData *dbus_data,
                                 gboolean                        try_trash,
-                                NautilusDeleteCallback          done_callback,
+                                NautilusFileOpHelper           *helper,
                                 gpointer                        done_callback_data)
 {
     GTask *task;
@@ -2622,7 +2670,7 @@ trash_or_delete_internal_async (GList                          *files,
                             parent_window,
                             dbus_data,
                             try_trash,
-                            done_callback,
+                            helper,
                             done_callback_data);
 
     task = g_task_new (NULL, NULL, delete_task_done, job);
@@ -2650,23 +2698,28 @@ nautilus_file_operations_trash_or_delete_async (GList                          *
                                                 NautilusDeleteCallback          done_callback,
                                                 gpointer                        done_callback_data)
 {
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
+
+    helper = nautilus_simple_file_op_helper_new ();
+    nautilus_file_op_helper_set_delete_callback (helper, done_callback);
+
     trash_or_delete_internal_async (files, parent_window,
                                     dbus_data,
                                     TRUE,
-                                    done_callback, done_callback_data);
+                                    helper, done_callback_data);
 }
 
 void
 nautilus_file_operations_delete_async (GList                          *files,
                                        GtkWindow                      *parent_window,
                                        NautilusFileOperationsDBusData *dbus_data,
-                                       NautilusDeleteCallback          done_callback,
+                                       NautilusFileOpHelper           *helper,
                                        gpointer                        done_callback_data)
 {
     trash_or_delete_internal_async (files, parent_window,
                                     dbus_data,
                                     FALSE,
-                                    done_callback, done_callback_data);
+                                    helper, done_callback_data);
 }
 
 
@@ -3266,18 +3319,20 @@ scan_dir (GFile      *dir,
           GQueue     *dirs)
 {
     GFileInfo *info;
-    GError *error;
     GFile *subdir;
     GFileEnumerator *enumerator;
     char *primary, *secondary, *details;
     int response;
     SourceInfo saved_info;
+    NautilusFileSubopError error = { 0 };
     g_autolist (GFile) subdirs = NULL;
     SourceDirInfo *dir_info = NULL;
     gboolean skip_subdirs = FALSE;
 
     /* It is possible for this function to be called multiple times for
-     * the same directory.
+     * the same directory (for example in tree view where a directory
+     * and it's parent are both selected).
+     *
      * We pass a NULL SourceDirInfo into count_file() if this directory has
      * already been scanned once so that its children are not counted more
      * than once in the SourceDirInfo corresponding to this directory.
@@ -3304,25 +3359,29 @@ retry:
         dir_info->num_bytes_children = 0;
     }
 
-    error = NULL;
-    enumerator = g_file_enumerate_children (dir,
-                                            G_FILE_ATTRIBUTE_STANDARD_NAME ","
-                                            G_FILE_ATTRIBUTE_STANDARD_TYPE ","
-                                            G_FILE_ATTRIBUTE_STANDARD_SIZE,
-                                            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-                                            job->cancellable,
-                                            &error);
+    error.gerror = NULL;
+    enumerator = nautilus_file_op_helper_enumerate_children (job->helper,
+                                                             dir,
+                                                             G_FILE_ATTRIBUTE_STANDARD_NAME ","
+                                                             G_FILE_ATTRIBUTE_STANDARD_TYPE ","
+                                                             G_FILE_ATTRIBUTE_STANDARD_SIZE,
+                                                             G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                                                             job->cancellable,
+                                                             &error);
     if (enumerator)
     {
-        error = NULL;
-        while ((info = g_file_enumerator_next_file (enumerator, job->cancellable, &error)) != NULL)
+        error.gerror = NULL;
+        while ((info = g_file_enumerator_next_file (enumerator, job->cancellable, &error.gerror)) != NULL)
         {
             count_file (info, job, source_info, dir_info);
 
             if (g_file_info_get_file_type (info) == G_FILE_TYPE_DIRECTORY)
             {
-                subdir = g_file_get_child (dir,
-                                           g_file_info_get_name (info));
+                /* TODO: Consider using g_file_enumerator_get_child */
+
+                subdir = nautilus_file_op_helper_get_child (job->helper,
+                                                            dir,
+                                                            g_file_info_get_name (info));
 
                 subdirs = g_list_prepend (subdirs, subdir);
             }
@@ -3332,11 +3391,11 @@ retry:
         g_file_enumerator_close (enumerator, job->cancellable, NULL);
         g_object_unref (enumerator);
 
-        if (error && IS_IO_ERROR (error, CANCELLED))
+        if (error.gerror && IS_IO_ERROR (error.gerror, CANCELLED))
         {
-            g_error_free (error);
+            g_error_free (error.gerror);
         }
-        else if (error)
+        else if (error.gerror)
         {
             g_autofree gchar *basename = NULL;
 
@@ -3344,7 +3403,7 @@ retry:
             details = NULL;
             basename = nautilus_get_display_basename (dir);
 
-            if (IS_IO_ERROR (error, PERMISSION_DENIED))
+            if (IS_IO_ERROR (error.gerror, PERMISSION_DENIED))
             {
                 secondary = g_strdup_printf (_("Files in the folder “%s” cannot be handled "
                                                "because you do not have permissions to see them."),
@@ -3354,7 +3413,7 @@ retry:
             {
                 secondary = g_strdup_printf (_("There was an error getting information about the "
                                                "files in the folder “%s”."), basename);
-                details = error->message;
+                details = error.gerror->message;
             }
 
             response = run_warning (job,
@@ -3365,7 +3424,7 @@ retry:
                                     CANCEL, RETRY, SKIP,
                                     NULL);
 
-            g_error_free (error);
+            g_error_free (error.gerror);
 
             if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
             {
@@ -3390,13 +3449,23 @@ retry:
     }
     else if (job->skip_all_error)
     {
-        g_error_free (error);
+        g_error_free (error.gerror);
         skip_file (job, dir);
         skip_subdirs = TRUE;
     }
-    else if (IS_IO_ERROR (error, CANCELLED))
+    else if (error.user_response_cancel_all)
     {
-        g_error_free (error);
+        if (error.gerror)
+        {
+            g_error_free (error.gerror);
+        }
+
+        abort_job (job);
+        skip_subdirs = TRUE;
+    }
+    else if (IS_IO_ERROR (error.gerror, CANCELLED))
+    {
+        g_error_free (error.gerror);
     }
     else
     {
@@ -3405,7 +3474,7 @@ retry:
         primary = get_scan_primary (source_info->op);
         details = NULL;
         basename = nautilus_get_display_basename (dir);
-        if (IS_IO_ERROR (error, PERMISSION_DENIED))
+        if (IS_IO_ERROR (error.gerror, PERMISSION_DENIED))
         {
             secondary = g_strdup_printf (_("The folder “%s” cannot be handled because you "
                                            "do not have permissions to read it."),
@@ -3415,7 +3484,7 @@ retry:
         {
             secondary = g_strdup_printf (_("There was an error reading the folder “%s”."),
                                          basename);
-            details = error->message;
+            details = error.gerror->message;
         }
         /* set show_all to TRUE here, as we don't know how many
          * files we'll end up processing yet.
@@ -3428,7 +3497,7 @@ retry:
                                 CANCEL, SKIP_ALL, SKIP, RETRY,
                                 NULL);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
         {
@@ -4229,11 +4298,12 @@ make_file_name_valid_for_dest_fs (char       *filename,
 }
 
 static GFile *
-get_unique_target_file (GFile      *src,
-                        GFile      *dest_dir,
-                        gboolean    same_fs,
-                        const char *dest_fs_type,
-                        int         count)
+get_unique_target_file (NautilusFileOpHelper *helper,
+                        GFile                *src,
+                        GFile                *dest_dir,
+                        gboolean              same_fs,
+                        const char           *dest_fs_type,
+                        int                   count)
 {
     const char *editname, *end;
     char *basename, *new_name;
@@ -4261,7 +4331,7 @@ get_unique_target_file (GFile      *src,
         {
             new_name = get_duplicate_name (editname, count, max_length, ignore_extension);
             make_file_name_valid_for_dest_fs (new_name, dest_fs_type);
-            dest = g_file_get_child_for_display_name (dest_dir, new_name, NULL);
+            dest = nautilus_file_op_helper_get_copy_move_target_for_display_name (helper, src, dest_dir, new_name, NULL);
             g_free (new_name);
         }
 
@@ -4276,7 +4346,7 @@ get_unique_target_file (GFile      *src,
         {
             new_name = get_duplicate_name (basename, count, max_length, ignore_extension);
             make_file_name_valid_for_dest_fs (new_name, dest_fs_type);
-            dest = g_file_get_child_for_display_name (dest_dir, new_name, NULL);
+            dest = nautilus_file_op_helper_get_copy_move_target_for_display_name (helper, src, dest_dir, new_name, NULL);
             g_free (new_name);
         }
 
@@ -4289,7 +4359,7 @@ get_unique_target_file (GFile      *src,
             }
             new_name = g_strdup_printf ("%s.%d", basename, count);
             make_file_name_valid_for_dest_fs (new_name, dest_fs_type);
-            dest = g_file_get_child (dest_dir, new_name);
+            dest = nautilus_file_op_helper_get_copy_move_target (helper, src, dest_dir, new_name);
             g_free (new_name);
         }
 
@@ -4367,11 +4437,11 @@ get_target_file_for_link (GFile      *src,
 }
 
 static GFile *
-get_target_file_with_custom_name (GFile       *src,
-                                  GFile       *dest_dir,
-                                  const char  *dest_fs_type,
-                                  gboolean     same_fs,
-                                  const gchar *custom_name)
+get_target_file (NautilusFileOpHelper *helper,
+                 GFile                *src,
+                 GFile                *dest_dir,
+                 const char           *dest_fs_type,
+                 gboolean              same_fs)
 {
     char *basename;
     GFile *dest;
@@ -4380,16 +4450,7 @@ get_target_file_with_custom_name (GFile       *src,
 
     dest = NULL;
 
-    if (custom_name != NULL)
-    {
-        copyname = g_strdup (custom_name);
-        make_file_name_valid_for_dest_fs (copyname, dest_fs_type);
-        dest = g_file_get_child_for_display_name (dest_dir, copyname, NULL);
-
-        g_free (copyname);
-    }
-
-    if (dest == NULL && !same_fs)
+    if (!same_fs)
     {
         info = g_file_query_info (src,
                                   G_FILE_ATTRIBUTE_STANDARD_COPY_NAME ","
@@ -4414,7 +4475,7 @@ get_target_file_with_custom_name (GFile       *src,
             if (copyname)
             {
                 make_file_name_valid_for_dest_fs (copyname, dest_fs_type);
-                dest = g_file_get_child_for_display_name (dest_dir, copyname, NULL);
+                dest = nautilus_file_op_helper_get_copy_move_target_for_display_name (helper, src, dest_dir, copyname, NULL);
                 g_free (copyname);
             }
 
@@ -4426,20 +4487,11 @@ get_target_file_with_custom_name (GFile       *src,
     {
         basename = g_file_get_basename (src);
         make_file_name_valid_for_dest_fs (basename, dest_fs_type);
-        dest = g_file_get_child (dest_dir, basename);
+        dest = nautilus_file_op_helper_get_copy_move_target (helper, src, dest_dir, basename);
         g_free (basename);
     }
 
     return dest;
-}
-
-static GFile *
-get_target_file (GFile      *src,
-                 GFile      *dest_dir,
-                 const char *dest_fs_type,
-                 gboolean    same_fs)
-{
-    return get_target_file_with_custom_name (src, dest_dir, dest_fs_type, same_fs, NULL);
 }
 
 static gboolean
@@ -4598,7 +4650,7 @@ create_dest_dir (CommonJob  *job,
                  gboolean    same_fs,
                  char      **dest_fs_type)
 {
-    GError *error;
+    NautilusFileSubopError error = { 0 };
     GFile *new_dest, *dest_dir;
     char *primary, *secondary, *details;
     int response;
@@ -4611,14 +4663,14 @@ retry:
     /* First create the directory, then copy stuff to it before
      *  copying the attributes, because we need to be sure we can write to it */
 
-    error = NULL;
-    res = g_file_make_directory (*dest, job->cancellable, &error);
+    error.gerror = NULL;
+    res = nautilus_file_op_helper_make_directory (job->helper, *dest, job->cancellable, &error);
 
     if (res)
     {
         GFile *real;
 
-        real = map_possibly_volatile_file_to_real (*dest, job->cancellable, &error);
+        real = map_possibly_volatile_file_to_real (*dest, job->cancellable, &error.gerror);
         if (real == NULL)
         {
             res = FALSE;
@@ -4634,12 +4686,18 @@ retry:
     {
         g_autofree gchar *basename = NULL;
 
-        if (IS_IO_ERROR (error, CANCELLED))
+        if (IS_IO_ERROR (error.gerror, CANCELLED))
         {
-            g_error_free (error);
+            g_error_free (error.gerror);
             return CREATE_DEST_DIR_FAILED;
         }
-        else if (IS_IO_ERROR (error, INVALID_FILENAME) &&
+        else if (error.user_response_cancel_all)
+        {
+            g_error_free (error.gerror);
+            abort_job (job);
+            return CREATE_DEST_DIR_FAILED;
+        }
+        else if (IS_IO_ERROR (error.gerror, INVALID_FILENAME) &&
                  !handled_invalid_filename)
         {
             handled_invalid_filename = TRUE;
@@ -4652,14 +4710,14 @@ retry:
             {
                 *dest_fs_type = query_fs_type (dest_dir, job->cancellable);
 
-                new_dest = get_target_file (src, dest_dir, *dest_fs_type, same_fs);
+                new_dest = get_target_file (job->helper, src, dest_dir, *dest_fs_type, same_fs);
                 g_object_unref (dest_dir);
 
                 if (!g_file_equal (*dest, new_dest))
                 {
                     g_object_unref (*dest);
                     *dest = new_dest;
-                    g_error_free (error);
+                    g_error_free (error.gerror);
                     return CREATE_DEST_DIR_RETRY;
                 }
                 else
@@ -4673,7 +4731,7 @@ retry:
         details = NULL;
         basename = nautilus_get_display_basename (src);
 
-        if (IS_IO_ERROR (error, PERMISSION_DENIED))
+        if (IS_IO_ERROR (error.gerror, PERMISSION_DENIED))
         {
             secondary = g_strdup_printf (_("The folder “%s” cannot be copied because you do not "
                                            "have permissions to create it in the destination."),
@@ -4683,7 +4741,7 @@ retry:
         {
             secondary = g_strdup_printf (_("There was an error creating the folder “%s”."),
                                          basename);
-            details = error->message;
+            details = error.gerror->message;
         }
 
         response = run_warning (job,
@@ -4694,7 +4752,7 @@ retry:
                                 CANCEL, SKIP, RETRY,
                                 NULL);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
         {
@@ -4746,7 +4804,7 @@ copy_move_directory (CopyMoveJob   *copy_job,
 {
     g_autoptr (GFileInfo) src_info = NULL;
     GFileInfo *info;
-    GError *error;
+    NautilusFileSubopError error = { 0 };
     GFile *src_file;
     GFileEnumerator *enumerator;
     char *primary, *secondary, *details;
@@ -4816,21 +4874,25 @@ copy_move_directory (CopyMoveJob   *copy_job,
 
     skip_error = should_skip_readdir_error (job, src);
 retry:
-    error = NULL;
-    enumerator = g_file_enumerate_children (src,
-                                            G_FILE_ATTRIBUTE_STANDARD_NAME,
-                                            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-                                            job->cancellable,
-                                            &error);
+    error.gerror = NULL;
+    enumerator = nautilus_file_op_helper_enumerate_children (job->helper,
+                                                             src,
+                                                             G_FILE_ATTRIBUTE_STANDARD_NAME,
+                                                             G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                                                             job->cancellable,
+                                                             &error);
     if (enumerator)
     {
-        error = NULL;
+        error.gerror = NULL;
 
         while (!job_aborted (job) &&
-               (info = g_file_enumerator_next_file (enumerator, job->cancellable, skip_error ? NULL : &error)) != NULL)
+               (info = g_file_enumerator_next_file (enumerator, job->cancellable, skip_error ? NULL : &error.gerror)) != NULL)
         {
-            src_file = g_file_get_child (src,
-                                         g_file_info_get_name (info));
+            /* TODO: Consider using g_file_enumerator_get_child */
+
+            src_file = nautilus_file_op_helper_get_child (job->helper,
+                                                          src,
+                                                          g_file_info_get_name (info));
             copy_move_file (copy_job, src_file, *dest, same_fs, FALSE, &dest_fs_type,
                             source_info, transfer_info, NULL, FALSE, &local_skipped_file,
                             readonly_source_fs);
@@ -4847,11 +4909,11 @@ retry:
         g_file_enumerator_close (enumerator, job->cancellable, NULL);
         g_object_unref (enumerator);
 
-        if (error && IS_IO_ERROR (error, CANCELLED))
+        if (error.gerror && IS_IO_ERROR (error.gerror, CANCELLED))
         {
-            g_error_free (error);
+            g_error_free (error.gerror);
         }
-        else if (error)
+        else if (error.gerror)
         {
             g_autofree gchar *basename = NULL;
 
@@ -4866,7 +4928,7 @@ retry:
             details = NULL;
             basename = nautilus_get_display_basename (src);
 
-            if (IS_IO_ERROR (error, PERMISSION_DENIED))
+            if (IS_IO_ERROR (error.gerror, PERMISSION_DENIED))
             {
                 secondary = g_strdup_printf (_("Files in the folder “%s” cannot be copied because you do "
                                                "not have permissions to see them."), basename);
@@ -4876,7 +4938,7 @@ retry:
                 secondary = g_strdup_printf (_("There was an error getting information about "
                                                "the files in the folder “%s”."),
                                              basename);
-                details = error->message;
+                details = error.gerror->message;
             }
 
             response = run_warning (job,
@@ -4887,7 +4949,7 @@ retry:
                                     CANCEL, _("_Skip files"),
                                     NULL);
 
-            g_error_free (error);
+            g_error_free (error.gerror);
 
             if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
             {
@@ -4929,9 +4991,18 @@ retry:
             g_hash_table_replace (debuting_files, g_object_ref (*dest), GINT_TO_POINTER (create_dest));
         }
     }
-    else if (IS_IO_ERROR (error, CANCELLED))
+    else if (IS_IO_ERROR (error.gerror, CANCELLED))
     {
-        g_error_free (error);
+        g_error_free (error.gerror);
+    }
+    else if (error.user_response_cancel_all)
+    {
+        if (error.gerror)
+        {
+            g_error_free (error.gerror);
+        }
+
+        abort_job (job);
     }
     else
     {
@@ -4948,7 +5019,7 @@ retry:
         details = NULL;
         basename = nautilus_get_display_basename (src);
 
-        if (IS_IO_ERROR (error, PERMISSION_DENIED))
+        if (IS_IO_ERROR (error.gerror, PERMISSION_DENIED))
         {
             secondary = g_strdup_printf (_("The folder “%s” cannot be copied because you do not have "
                                            "permissions to read it."), basename);
@@ -4958,7 +5029,7 @@ retry:
             secondary = g_strdup_printf (_("There was an error reading the folder “%s”."),
                                          basename);
 
-            details = error->message;
+            details = error.gerror->message;
         }
 
         response = run_warning (job,
@@ -4969,7 +5040,7 @@ retry:
                                 CANCEL, SKIP, RETRY,
                                 NULL);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
         {
@@ -5005,7 +5076,7 @@ retry:
         !*skipped_file &&
         !local_skipped_file)
     {
-        if (!g_file_delete (src, job->cancellable, &error))
+        if (!g_file_delete (src, job->cancellable, &error.gerror))
         {
             g_autofree gchar *basename = NULL;
 
@@ -5017,7 +5088,7 @@ retry:
             basename = nautilus_get_display_basename (src);
             primary = g_strdup_printf (_("Error while moving “%s”."), basename);
             secondary = g_strdup (_("Could not remove the source folder."));
-            details = error->message;
+            details = error.gerror->message;
 
             response = run_cancel_or_skip_warning (job,
                                                    primary,
@@ -5045,7 +5116,7 @@ retry:
             }
 
 skip:
-            g_error_free (error);
+            g_error_free (error.gerror);
         }
     }
 
@@ -5182,17 +5253,18 @@ handle_copy_move_conflict (CommonJob *job,
 }
 
 static GFile *
-get_target_file_for_display_name (GFile       *dir,
-                                  const gchar *name)
+get_target_file_for_display_name (NautilusFileOpHelper *helper,
+                                  GFile                *src,
+                                  GFile                *dir,
+                                  const gchar          *name)
 {
     GFile *dest;
 
-    dest = NULL;
-    dest = g_file_get_child_for_display_name (dir, name, NULL);
+    dest = nautilus_file_op_helper_get_copy_move_target_for_display_name (helper, src, dir, name, NULL);
 
     if (dest == NULL)
     {
-        dest = g_file_get_child (dir, name);
+        dest = nautilus_file_op_helper_get_copy_move_target (helper, src, dir, name);
     }
 
     return dest;
@@ -5242,7 +5314,7 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
     }
     else
     {
-        dest = get_target_file_for_display_name (dir, g_file_info_get_display_name (info));
+        dest = get_target_file_for_display_name (job->helper, src, dir, g_file_info_get_display_name (info));
     }
 
     return dest;
@@ -5266,7 +5338,7 @@ copy_move_file (CopyMoveJob   *copy_job,
 {
     GFile *dest, *new_dest;
     g_autofree gchar *dest_uri = NULL;
-    GError *error;
+    NautilusFileSubopError error = { 0 };
     GFileCopyFlags flags;
     char *primary, *secondary, *details;
     ProgressData pdata;
@@ -5295,12 +5367,7 @@ copy_move_file (CopyMoveJob   *copy_job,
 
     if (unique_names)
     {
-        dest = get_unique_target_file (src, dest_dir, same_fs, *dest_fs_type, unique_name_nr++);
-    }
-    else if (copy_job->target_name != NULL)
-    {
-        dest = get_target_file_with_custom_name (src, dest_dir, *dest_fs_type, same_fs,
-                                                 copy_job->target_name);
+        dest = get_unique_target_file (job->helper, src, dest_dir, same_fs, *dest_fs_type, unique_name_nr++);
     }
     else if (g_file_has_uri_scheme (src, "google-drive") &&
              g_file_has_uri_scheme (dest_dir, "google-drive"))
@@ -5314,7 +5381,7 @@ copy_move_file (CopyMoveJob   *copy_job,
     }
     else
     {
-        dest = get_target_file (src, dest_dir, *dest_fs_type, same_fs);
+        dest = get_target_file (job->helper, src, dest_dir, *dest_fs_type, same_fs);
     }
 
     /* Don't allow recursive move/copy into itself.
@@ -5405,7 +5472,7 @@ copy_move_file (CopyMoveJob   *copy_job,
 
 retry:
 
-    error = NULL;
+    error.gerror = NULL;
     flags = G_FILE_COPY_NOFOLLOW_SYMLINKS;
     if (overwrite)
     {
@@ -5423,28 +5490,30 @@ retry:
 
     if (copy_job->is_move)
     {
-        res = g_file_move (src, dest,
-                           flags,
-                           job->cancellable,
-                           copy_file_progress_callback,
-                           &pdata,
-                           &error);
+        res = nautilus_file_op_helper_move_file (job->helper,
+                                                 src, dest,
+                                                 flags,
+                                                 job->cancellable,
+                                                 copy_file_progress_callback,
+                                                 &pdata,
+                                                 &error);
     }
     else
     {
-        res = g_file_copy (src, dest,
-                           flags,
-                           job->cancellable,
-                           copy_file_progress_callback,
-                           &pdata,
-                           &error);
+        res = nautilus_file_op_helper_copy_file (job->helper,
+                                                 src, dest,
+                                                 flags,
+                                                 job->cancellable,
+                                                 copy_file_progress_callback,
+                                                 &pdata,
+                                                 &error);
     }
 
     if (res)
     {
         GFile *real;
 
-        real = map_possibly_volatile_file_to_real (dest, job->cancellable, &error);
+        real = map_possibly_volatile_file_to_real (dest, job->cancellable, &error.gerror);
         if (real == NULL)
         {
             res = FALSE;
@@ -5487,7 +5556,7 @@ retry:
     }
 
     if (!handled_invalid_filename &&
-        IS_IO_ERROR (error, INVALID_FILENAME))
+        IS_IO_ERROR (error.gerror, INVALID_FILENAME))
     {
         handled_invalid_filename = TRUE;
 
@@ -5496,11 +5565,11 @@ retry:
 
         if (unique_names)
         {
-            new_dest = get_unique_target_file (src, dest_dir, same_fs, *dest_fs_type, unique_name_nr);
+            new_dest = get_unique_target_file (job->helper, src, dest_dir, same_fs, *dest_fs_type, unique_name_nr);
         }
         else
         {
-            new_dest = get_target_file (src, dest_dir, *dest_fs_type, same_fs);
+            new_dest = get_target_file (job->helper, src, dest_dir, *dest_fs_type, same_fs);
         }
 
         if (!g_file_equal (dest, new_dest))
@@ -5508,7 +5577,7 @@ retry:
             g_object_unref (dest);
             dest = new_dest;
 
-            g_error_free (error);
+            g_error_free (error.gerror);
             goto retry;
         }
         else
@@ -5519,7 +5588,7 @@ retry:
 
     /* Conflict */
     if (!overwrite &&
-        IS_IO_ERROR (error, EXISTS))
+        IS_IO_ERROR (error.gerror, EXISTS))
     {
         gboolean source_is_directory;
         gboolean destination_is_directory;
@@ -5529,12 +5598,12 @@ retry:
         source_is_directory = is_dir (src);
         destination_is_directory = is_dir (dest);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         if (unique_names)
         {
             g_object_unref (dest);
-            dest = get_unique_target_file (src, dest_dir, same_fs, *dest_fs_type, unique_name_nr++);
+            dest = get_unique_target_file (job->helper, src, dest_dir, same_fs, *dest_fs_type, unique_name_nr++);
             goto retry;
         }
 
@@ -5599,8 +5668,7 @@ retry:
         else if (response->id == CONFLICT_RESPONSE_RENAME)
         {
             g_object_unref (dest);
-            dest = get_target_file_for_display_name (dest_dir,
-                                                     response->new_name);
+            dest = get_target_file_for_display_name (job->helper, src, dest_dir, response->new_name);
             file_conflict_response_free (response);
             goto retry;
         }
@@ -5610,22 +5678,22 @@ retry:
         }
     }
     /* Needs to recurse */
-    else if (IS_IO_ERROR (error, WOULD_RECURSE) ||
-             IS_IO_ERROR (error, WOULD_MERGE))
+    else if (IS_IO_ERROR (error.gerror, WOULD_RECURSE) ||
+             IS_IO_ERROR (error.gerror, WOULD_MERGE))
     {
         gboolean is_merge;
 
-        is_merge = error->code == G_IO_ERROR_WOULD_MERGE;
-        would_recurse = error->code == G_IO_ERROR_WOULD_RECURSE;
-        g_error_free (error);
+        is_merge = error.gerror->code == G_IO_ERROR_WOULD_MERGE;
+        would_recurse = error.gerror->code == G_IO_ERROR_WOULD_RECURSE;
+        g_error_free (error.gerror);
 
         if (overwrite && would_recurse)
         {
-            error = NULL;
+            error.gerror = NULL;
 
             /* Copying a dir onto file, first remove the file */
-            if (!g_file_delete (dest, job->cancellable, &error) &&
-                !IS_IO_ERROR (error, NOT_FOUND))
+            if (!g_file_delete (dest, job->cancellable, &error.gerror) &&
+                !IS_IO_ERROR (error.gerror, NOT_FOUND))
             {
                 g_autofree gchar *basename = NULL;
                 g_autofree gchar *filename = NULL;
@@ -5633,7 +5701,7 @@ retry:
 
                 if (job->skip_all_error)
                 {
-                    g_error_free (error);
+                    g_error_free (error.gerror);
                     goto out;
                 }
 
@@ -5650,7 +5718,7 @@ retry:
                 secondary = g_strdup_printf (_("Could not remove the already existing file "
                                                "with the same name in %s."),
                                              filename);
-                details = error->message;
+                details = error.gerror->message;
 
                 /* setting TRUE on show_all here, as we could have
                  * another error on the same file later.
@@ -5663,7 +5731,7 @@ retry:
                                         CANCEL, SKIP_ALL, SKIP,
                                         NULL);
 
-                g_error_free (error);
+                g_error_free (error.gerror);
 
                 if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
                 {
@@ -5682,10 +5750,10 @@ retry:
                 }
                 goto out;
             }
-            if (error)
+            if (error.gerror)
             {
-                g_error_free (error);
-                error = NULL;
+                g_error_free (error.gerror);
+                error.gerror = NULL;
             }
             nautilus_file_changes_queue_file_removed (dest);
         }
@@ -5715,9 +5783,18 @@ retry:
         g_object_unref (dest);
         return;
     }
-    else if (IS_IO_ERROR (error, CANCELLED))
+    else if (IS_IO_ERROR (error.gerror, CANCELLED))
     {
-        g_error_free (error);
+        g_error_free (error.gerror);
+    }
+    else if (error.user_response_cancel_all)
+    {
+        if (error.gerror)
+        {
+            g_error_free (error.gerror);
+        }
+
+        abort_job (job);
     }
     /* Other error */
     else
@@ -5728,7 +5805,7 @@ retry:
 
         if (job->skip_all_error)
         {
-            g_error_free (error);
+            g_error_free (error.gerror);
             goto out;
         }
         basename = nautilus_get_display_basename (src);
@@ -5736,7 +5813,7 @@ retry:
         filename = get_truncated_parse_name (dest_dir);
         secondary = g_strdup_printf (_("There was an error copying the file into %s."),
                                      filename);
-        details = error->message;
+        details = error.gerror->message;
 
         response = run_cancel_or_skip_warning (job,
                                                primary,
@@ -5745,7 +5822,7 @@ retry:
                                                source_info->num_files,
                                                source_info->num_files - transfer_info->num_files);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
         {
@@ -5861,12 +5938,11 @@ copy_task_done (GObject      *source_object,
     CopyMoveJob *job;
 
     job = user_data;
-    if (job->done_callback)
-    {
-        job->done_callback (job->debuting_files,
-                            !job_aborted ((CommonJob *) job),
-                            job->done_callback_data);
-    }
+
+    nautilus_file_op_helper_on_copy_op_done (job->common.helper,
+                                             job->debuting_files,
+                                             !job_aborted ((CommonJob *) job),
+                                             job->done_callback_data);
 
     g_list_free_full (job->files, g_object_unref);
     if (job->destination)
@@ -5874,7 +5950,6 @@ copy_task_done (GObject      *source_object,
         g_object_unref (job->destination);
     }
     g_hash_table_unref (job->debuting_files);
-    g_free (job->target_name);
 
     g_clear_object (&job->fake_display_source);
 
@@ -5885,23 +5960,36 @@ copy_task_done (GObject      *source_object,
 
 static CopyMoveJob *
 copy_job_setup (GList                          *files,
+                GFile                          *src_dir,
                 GFile                          *target_dir,
                 GtkWindow                      *parent_window,
                 NautilusFileOperationsDBusData *dbus_data,
-                NautilusCopyCallback            done_callback,
+                NautilusFileOpHelper           *helper,
                 gpointer                        done_callback_data)
 {
     CopyMoveJob *job;
+    GFile *dest_dir;
 
-    job = op_job_new (CopyMoveJob, parent_window, dbus_data);
-    job->done_callback = done_callback;
+    g_assert (helper != NULL);
+
+    job = op_job_new_with_helper (CopyMoveJob, parent_window, dbus_data, helper);
     job->done_callback_data = done_callback_data;
     job->files = g_list_copy_deep (files, (GCopyFunc) g_object_ref, NULL);
-    job->destination = g_object_ref (target_dir);
+    g_set_object (&job->destination, target_dir);
+    job->debuting_files = g_hash_table_new_full (g_file_hash, (GEqualFunc) g_file_equal, g_object_unref, NULL);
+
+    if (target_dir != NULL)
+    {
+        dest_dir = target_dir;
+    }
+    else
+    {
+        dest_dir = src_dir;
+    }
+
     /* Need to indicate the destination for the operation notification open
      * button. */
-    nautilus_progress_info_set_destination (((CommonJob *) job)->progress, target_dir);
-    job->debuting_files = g_hash_table_new_full (g_file_hash, (GEqualFunc) g_file_equal, g_object_unref, NULL);
+    nautilus_progress_info_set_destination (((CommonJob *) job)->progress, dest_dir);
 
     return job;
 }
@@ -5931,13 +6019,14 @@ nautilus_file_operations_copy (GTask        *task,
     {
         g_autoptr (GFile) src_dir = NULL;
         NautilusFileUndoOp undo_op_type;
+        g_autoptr (NautilusFileOpHelper) undo_helper = NULL;
 
         src_dir = g_file_get_parent (job->files->data);
         undo_op_type = NAUTILUS_FILE_UNDO_OP_COPY;
 
         if (job->destination == NULL ||
             (src_dir != NULL &&
-                g_file_equal (src_dir, job->destination)))
+             g_file_equal (src_dir, job->destination)))
         {
             /* Use a distinct undo op ID for "duplicate" operation. This merely affects the user facing info-text about
              * undo; the actual op logic is the same as the regular copy.
@@ -5946,9 +6035,12 @@ nautilus_file_operations_copy (GTask        *task,
             undo_op_type = NAUTILUS_FILE_UNDO_OP_DUPLICATE;
         }
 
+        undo_helper = nautilus_file_op_helper_duplicate_for_undo_op (common->helper);
+
         job->common.undo_info = nautilus_file_undo_info_ext_new (undo_op_type,
                                                                  g_list_length (job->files),
-                                                                 src_dir, job->destination);
+                                                                 src_dir, job->destination,
+                                                                 undo_helper);
     }
 
     nautilus_progress_info_start (job->common.progress);
@@ -5998,12 +6090,18 @@ nautilus_file_operations_copy_sync (GList *files,
 {
     GTask *task;
     CopyMoveJob *job;
+    g_autoptr (GFile) src_dir = NULL;
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
+
+    src_dir = g_file_get_parent (files->data);
+    helper = nautilus_simple_file_op_helper_new ();
 
     job = copy_job_setup (files,
+                          src_dir,
                           target_dir,
                           NULL,
                           NULL,
-                          NULL,
+                          helper,
                           NULL);
 
     task = g_task_new (NULL, job->common.cancellable, NULL, job);
@@ -6016,22 +6114,23 @@ nautilus_file_operations_copy_sync (GList *files,
     copy_task_done (NULL, NULL, job);
 }
 
-void
-nautilus_file_operations_copy_async (GList                          *files,
-                                     GFile                          *target_dir,
-                                     GtkWindow                      *parent_window,
-                                     NautilusFileOperationsDBusData *dbus_data,
-                                     NautilusCopyCallback            done_callback,
-                                     gpointer                        done_callback_data)
+void nautilus_file_operations_copy_async (GList                          *files,
+                                          GFile                          *target_dir,
+                                          GtkWindow                      *parent_window,
+                                          NautilusFileOperationsDBusData *dbus_data,
+                                          NautilusFileOpHelper           *helper,
+                                          gpointer                        done_callback_data)
 {
-    GTask *task;
     CopyMoveJob *job;
+    GTask *task;
+    g_autoptr (GFile) src_dir = g_file_get_parent (files->data);
 
     job = copy_job_setup (files,
+                          src_dir,
                           target_dir,
                           parent_window,
                           dbus_data,
-                          done_callback,
+                          helper,
                           done_callback_data);
 
     task = g_task_new (NULL, job->common.cancellable, copy_task_done, job);
@@ -6110,7 +6209,7 @@ move_file_prepare (CopyMoveJob  *move_job,
 {
     GFile *dest, *new_dest;
     g_autofree gchar *dest_uri = NULL;
-    GError *error;
+    NautilusFileSubopError error = { 0 };
     CommonJob *job;
     gboolean overwrite;
     char *primary, *secondary, *details;
@@ -6134,7 +6233,7 @@ move_file_prepare (CopyMoveJob  *move_job,
     }
     else
     {
-        dest = get_target_file (src, dest_dir, *dest_fs_type, same_fs);
+        dest = get_target_file (job->helper, src, dest_dir, *dest_fs_type, same_fs);
     }
 
 
@@ -6190,13 +6289,14 @@ retry:
         flags |= G_FILE_COPY_OVERWRITE;
     }
 
-    error = NULL;
-    if (g_file_move (src, dest,
-                     flags,
-                     job->cancellable,
-                     NULL,
-                     NULL,
-                     &error))
+    error.gerror = NULL;
+    if (nautilus_file_op_helper_move_file (job->helper,
+                                           src, dest,
+                                           flags,
+                                           job->cancellable,
+                                           NULL,
+                                           NULL,
+                                           &error))
     {
         if (debuting_files)
         {
@@ -6216,17 +6316,17 @@ retry:
         return;
     }
 
-    if (IS_IO_ERROR (error, INVALID_FILENAME) &&
+    if (IS_IO_ERROR (error.gerror, INVALID_FILENAME) &&
         !handled_invalid_filename)
     {
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         handled_invalid_filename = TRUE;
 
         g_assert (*dest_fs_type == NULL);
         *dest_fs_type = query_fs_type (dest_dir, job->cancellable);
 
-        new_dest = get_target_file (src, dest_dir, *dest_fs_type, same_fs);
+        new_dest = get_target_file (job->helper, src, dest_dir, *dest_fs_type, same_fs);
         if (!g_file_equal (dest, new_dest))
         {
             g_object_unref (dest);
@@ -6240,7 +6340,7 @@ retry:
     }
     /* Conflict */
     else if (!overwrite &&
-             IS_IO_ERROR (error, EXISTS))
+             IS_IO_ERROR (error.gerror, EXISTS))
     {
         gboolean source_is_directory;
         gboolean destination_is_directory;
@@ -6250,7 +6350,7 @@ retry:
         source_is_directory = is_dir (src);
         destination_is_directory = is_dir (dest);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         is_merge = FALSE;
         if (source_is_directory && destination_is_directory)
@@ -6312,8 +6412,7 @@ retry:
         else if (response->id == CONFLICT_RESPONSE_RENAME)
         {
             g_object_unref (dest);
-            dest = get_target_file_for_display_name (dest_dir,
-                                                     response->new_name);
+            dest = get_target_file_for_display_name (job->helper, src, dest_dir, response->new_name);
             file_conflict_response_free (response);
             goto retry;
         }
@@ -6322,19 +6421,28 @@ retry:
             g_assert_not_reached ();
         }
     }
-    else if (IS_IO_ERROR (error, WOULD_RECURSE) ||
-             IS_IO_ERROR (error, WOULD_MERGE) ||
-             IS_IO_ERROR (error, NOT_SUPPORTED))
+    else if (IS_IO_ERROR (error.gerror, WOULD_RECURSE) ||
+             IS_IO_ERROR (error.gerror, WOULD_MERGE) ||
+             IS_IO_ERROR (error.gerror, NOT_SUPPORTED))
     {
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         fallback = move_copy_file_callback_new (src,
                                                 overwrite);
         *fallback_files = g_list_prepend (*fallback_files, fallback);
     }
-    else if (IS_IO_ERROR (error, CANCELLED))
+    else if (IS_IO_ERROR (error.gerror, CANCELLED))
     {
-        g_error_free (error);
+        g_error_free (error.gerror);
+    }
+    else if (error.user_response_cancel_all)
+    {
+        if (error.gerror)
+        {
+            g_error_free (error.gerror);
+        }
+
+        abort_job (job);
     }
     /* Other error */
     else
@@ -6345,7 +6453,7 @@ retry:
 
         if (job->skip_all_error)
         {
-            g_error_free (error);
+            g_error_free (error.gerror);
             goto out;
         }
         basename = nautilus_get_display_basename (src);
@@ -6354,7 +6462,7 @@ retry:
         secondary = g_strdup_printf (_("There was an error moving the file into %s."),
                                      filename);
 
-        details = error->message;
+        details = error.gerror->message;
 
         response = run_warning (job,
                                 primary,
@@ -6364,7 +6472,7 @@ retry:
                                 CANCEL, SKIP_ALL, SKIP,
                                 NULL);
 
-        g_error_free (error);
+        g_error_free (error.gerror);
 
         if (response == 0 || response == GTK_RESPONSE_DELETE_EVENT)
         {
@@ -6491,12 +6599,11 @@ move_task_done (GObject      *source_object,
     CopyMoveJob *job;
 
     job = user_data;
-    if (job->done_callback)
-    {
-        job->done_callback (job->debuting_files,
-                            !job_aborted ((CommonJob *) job),
-                            job->done_callback_data);
-    }
+
+    nautilus_file_op_helper_on_copy_op_done (job->common.helper,
+                                             job->debuting_files,
+                                             !job_aborted ((CommonJob *) job),
+                                             job->done_callback_data);
 
     g_list_free_full (job->files, g_object_unref);
     g_object_unref (job->destination);
@@ -6512,21 +6619,23 @@ move_job_setup (GList                          *files,
                 GFile                          *target_dir,
                 GtkWindow                      *parent_window,
                 NautilusFileOperationsDBusData *dbus_data,
-                NautilusCopyCallback            done_callback,
+                NautilusFileOpHelper           *helper,
                 gpointer                        done_callback_data)
 {
     CopyMoveJob *job;
 
-    job = op_job_new (CopyMoveJob, parent_window, dbus_data);
+    g_assert (helper != NULL);
+    g_assert (target_dir != NULL);
+
+    job = op_job_new_with_helper (CopyMoveJob, parent_window, dbus_data, helper);
     job->is_move = TRUE;
-    job->done_callback = done_callback;
     job->done_callback_data = done_callback_data;
     job->files = g_list_copy_deep (files, (GCopyFunc) g_object_ref, NULL);
     job->destination = g_object_ref (target_dir);
 
     /* Need to indicate the destination for the operation notification open
      * button. */
-    nautilus_progress_info_set_destination (((CommonJob *) job)->progress, job->destination);
+    nautilus_progress_info_set_destination (((CommonJob *) job)->progress, target_dir);
     job->debuting_files = g_hash_table_new_full (g_file_hash, (GEqualFunc) g_file_equal, g_object_unref, NULL);
 
     return job;
@@ -6539,7 +6648,10 @@ nautilus_file_operations_move_sync (GList *files,
     GTask *task;
     CopyMoveJob *job;
 
-    job = move_job_setup (files, target_dir, NULL, NULL, NULL, NULL);
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
+
+    helper = nautilus_simple_file_op_helper_new ();
+    job = move_job_setup (files, target_dir, NULL, NULL, helper, NULL);
     task = g_task_new (NULL, job->common.cancellable, NULL, job);
     g_task_set_task_data (task, job, NULL);
     g_task_run_in_thread_sync (task, nautilus_file_operations_move);
@@ -6555,7 +6667,7 @@ nautilus_file_operations_move_async (GList                          *files,
                                      GFile                          *target_dir,
                                      GtkWindow                      *parent_window,
                                      NautilusFileOperationsDBusData *dbus_data,
-                                     NautilusCopyCallback            done_callback,
+                                     NautilusFileOpHelper           *helper,
                                      gpointer                        done_callback_data)
 {
     GTask *task;
@@ -6565,7 +6677,7 @@ nautilus_file_operations_move_async (GList                          *files,
                           target_dir,
                           parent_window,
                           dbus_data,
-                          done_callback,
+                          helper,
                           done_callback_data);
 
     task = g_task_new (NULL, job->common.cancellable, move_task_done, job);
@@ -6590,6 +6702,7 @@ nautilus_file_operations_move (GTask        *task,
     GList *fallback_files;
 
     job = task_data;
+    common = &job->common;
 
     /* Since we never initiate the app (in the case of
      * testing), we can't inhibit its power manager.
@@ -6612,19 +6725,22 @@ nautilus_file_operations_move (GTask        *task,
         {
             job->common.undo_info = nautilus_file_undo_info_ext_new (NAUTILUS_FILE_UNDO_OP_RESTORE_FROM_TRASH,
                                                                      g_list_length (job->files),
-                                                                     src_dir, job->destination);
+                                                                     src_dir, job->destination,
+                                                                     NULL);
         }
         else
         {
+            g_autoptr (NautilusFileOpHelper) undo_helper = NULL;
+            undo_helper = nautilus_file_op_helper_duplicate_for_undo_op (common->helper);
+
             job->common.undo_info = nautilus_file_undo_info_ext_new (NAUTILUS_FILE_UNDO_OP_MOVE,
                                                                      g_list_length (job->files),
-                                                                     src_dir, job->destination);
+                                                                     src_dir, job->destination,
+                                                                     undo_helper);
         }
     }
 
-    common = &job->common;
-
-    nautilus_progress_info_start (job->common.progress);
+    nautilus_progress_info_start (common->progress);
 
     fallbacks = NULL;
 
@@ -6920,12 +7036,11 @@ link_task_done (GObject      *source_object,
     CopyMoveJob *job;
 
     job = user_data;
-    if (job->done_callback)
-    {
-        job->done_callback (job->debuting_files,
-                            !job_aborted ((CommonJob *) job),
-                            job->done_callback_data);
-    }
+
+    nautilus_file_op_helper_on_copy_op_done (job->common.helper,
+                                             job->debuting_files,
+                                             !job_aborted ((CommonJob *) job),
+                                             job->done_callback_data);
 
     g_list_free_full (job->files, g_object_unref);
     g_object_unref (job->destination);
@@ -6992,10 +7107,13 @@ nautilus_file_operations_link (GList                          *files,
                                gpointer                        done_callback_data)
 {
     g_autoptr (GTask) task = NULL;
+    g_autoptr (NautilusFileOpHelper) helper = NULL;
     CopyMoveJob *job;
 
-    job = op_job_new (CopyMoveJob, parent_window, dbus_data);
-    job->done_callback = done_callback;
+    helper = nautilus_simple_file_op_helper_new ();
+    nautilus_file_op_helper_set_copy_move_callback (helper, done_callback);
+
+    job = op_job_new_with_helper (CopyMoveJob, parent_window, dbus_data, helper);
     job->done_callback_data = done_callback_data;
     job->files = g_list_copy_deep (files, (GCopyFunc) g_object_ref, NULL);
     job->destination = g_object_ref (target_dir);
@@ -7007,11 +7125,15 @@ nautilus_file_operations_link (GList                          *files,
     if (!nautilus_file_undo_manager_is_operating ())
     {
         g_autoptr (GFile) src_dir = NULL;
+        g_autoptr (NautilusFileOpHelper) undo_helper = NULL;
+
+        undo_helper = nautilus_file_op_helper_duplicate_for_undo_op (helper);
 
         src_dir = g_file_get_parent (files->data);
         job->common.undo_info = nautilus_file_undo_info_ext_new (NAUTILUS_FILE_UNDO_OP_CREATE_LINK,
                                                                  g_list_length (files),
-                                                                 src_dir, target_dir);
+                                                                 src_dir, target_dir,
+                                                                 helper);
     }
 
     task = g_task_new (NULL, job->common.cancellable, link_task_done, job);
@@ -8151,7 +8273,7 @@ run_passphrase_dialog (gpointer user_data)
                                           NULL);
     gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_OK);
     source_file = autoar_extractor_get_source_file (data->extractor);
-    basename = get_basename (source_file);
+    basename = nautilus_get_display_basename (source_file);
 
     box = gtk_dialog_get_content_area (GTK_DIALOG (dialog));
     gtk_widget_set_margin_start (box, 20);

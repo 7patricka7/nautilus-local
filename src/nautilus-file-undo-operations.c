@@ -33,6 +33,7 @@
 #include "nautilus-batch-rename-dialog.h"
 #include "nautilus-batch-rename-utilities.h"
 #include "nautilus-tag-manager.h"
+#include "nautilus-file-op-helper.h"
 
 
 /* Since we use g_get_current_time for setting "orig_trash_time" in the undo
@@ -403,6 +404,7 @@ struct _NautilusFileUndoInfoExt
     GFile *dest_dir;
     GQueue *sources;          /* Relative to src_dir */
     GQueue *destinations;     /* Relative to dest_dir */
+    NautilusFileOpHelper *helper;
 };
 
 G_DEFINE_TYPE (NautilusFileUndoInfoExt, nautilus_file_undo_info_ext, NAUTILUS_TYPE_FILE_UNDO_INFO)
@@ -600,11 +602,13 @@ ext_copy_redo_func (NautilusFileUndoInfoExt        *self,
                     GtkWindow                      *parent_window,
                     NautilusFileOperationsDBusData *dbus_data)
 {
+    nautilus_file_op_helper_set_copy_move_callback (self->helper, file_undo_info_transfer_callback);
+
     nautilus_file_operations_copy_async (g_queue_peek_head_link (self->sources),
                                          self->dest_dir,
                                          parent_window,
                                          dbus_data,
-                                         file_undo_info_transfer_callback,
+                                         self->helper,
                                          self);
 }
 
@@ -613,11 +617,13 @@ ext_move_restore_redo_func (NautilusFileUndoInfoExt        *self,
                             GtkWindow                      *parent_window,
                             NautilusFileOperationsDBusData *dbus_data)
 {
+    nautilus_file_op_helper_set_copy_move_callback (self->helper, file_undo_info_transfer_callback);
+
     nautilus_file_operations_move_async (g_queue_peek_head_link (self->sources),
                                          self->dest_dir,
                                          parent_window,
                                          dbus_data,
-                                         file_undo_info_transfer_callback,
+                                         self->helper,
                                          self);
 }
 
@@ -667,27 +673,31 @@ ext_move_undo_func (NautilusFileUndoInfoExt        *self,
                     GtkWindow                      *parent_window,
                     NautilusFileOperationsDBusData *dbus_data)
 {
+    nautilus_file_op_helper_set_copy_move_callback (self->helper, file_undo_info_transfer_callback);
+
     nautilus_file_operations_move_async (g_queue_peek_head_link (self->destinations),
                                          self->src_dir,
                                          parent_window,
                                          dbus_data,
-                                         file_undo_info_transfer_callback,
+                                         self->helper,
                                          self);
 }
 
 static void
-ext_copy_duplicate_undo_func (NautilusFileUndoInfoExt        *self,
-                              GtkWindow                      *parent_window,
-                              NautilusFileOperationsDBusData *dbus_data)
+ext_copy_undo_func (NautilusFileUndoInfoExt        *self,
+                    GtkWindow                      *parent_window,
+                    NautilusFileOperationsDBusData *dbus_data)
 {
     GList *files;
+
+    nautilus_file_op_helper_set_delete_callback (self->helper, file_undo_info_delete_callback);
 
     files = g_list_copy (g_queue_peek_head_link (self->destinations));
     files = g_list_reverse (files);     /* Deleting must be done in reverse */
 
     nautilus_file_operations_delete_async (files, parent_window,
                                            dbus_data,
-                                           file_undo_info_delete_callback, self);
+                                           self->helper, self);
 
     g_list_free (files);
 }
@@ -704,7 +714,7 @@ ext_undo_func (NautilusFileUndoInfo           *info,
         op_type == NAUTILUS_FILE_UNDO_OP_DUPLICATE ||
         op_type == NAUTILUS_FILE_UNDO_OP_CREATE_LINK)
     {
-        ext_copy_duplicate_undo_func (self, parent_window, dbus_data);
+        ext_copy_undo_func (self, parent_window, dbus_data);
     }
     else if (op_type == NAUTILUS_FILE_UNDO_OP_MOVE)
     {
@@ -742,6 +752,7 @@ nautilus_file_undo_info_ext_finalize (GObject *obj)
 
     g_clear_object (&self->src_dir);
     g_clear_object (&self->dest_dir);
+    g_clear_object (&self->helper);
 
     G_OBJECT_CLASS (nautilus_file_undo_info_ext_parent_class)->finalize (obj);
 }
@@ -760,10 +771,11 @@ nautilus_file_undo_info_ext_class_init (NautilusFileUndoInfoExtClass *klass)
 }
 
 NautilusFileUndoInfo *
-nautilus_file_undo_info_ext_new (NautilusFileUndoOp  op_type,
-                                 gint                item_count,
-                                 GFile              *src_dir,
-                                 GFile              *target_dir)
+nautilus_file_undo_info_ext_new (NautilusFileUndoOp    op_type,
+                                 gint                  item_count,
+                                 GFile                *src_dir,
+                                 GFile                *target_dir,
+                                 NautilusFileOpHelper *helper)
 {
     NautilusFileUndoInfoExt *self;
 
@@ -773,10 +785,10 @@ nautilus_file_undo_info_ext_new (NautilusFileUndoOp  op_type,
                          NULL);
 
     self->src_dir = g_object_ref (src_dir);
-    if (target_dir != NULL)
-        self->dest_dir = g_object_ref (target_dir);
+    g_set_object (&self->dest_dir, target_dir);
     self->sources = g_queue_new ();
     self->destinations = g_queue_new ();
+    g_set_object (&self->helper, g_object_ref (helper));
 
     return NAUTILUS_FILE_UNDO_INFO (self);
 }
@@ -952,11 +964,14 @@ create_undo_func (NautilusFileUndoInfo           *info,
 {
     NautilusFileUndoInfoCreate *self = NAUTILUS_FILE_UNDO_INFO_CREATE (info);
     GList *files = NULL;
+    g_autoptr (NautilusFileOpHelper) helper = nautilus_simple_file_op_helper_new ();
+
+    nautilus_file_op_helper_set_delete_callback (helper, file_undo_info_delete_callback);
 
     files = g_list_append (files, g_object_ref (self->target_file));
     nautilus_file_operations_delete_async (files, parent_window,
                                            dbus_data,
-                                           file_undo_info_delete_callback, self);
+                                           helper, self);
 
     g_list_free_full (files, g_object_unref);
 }
@@ -2404,10 +2419,13 @@ extract_undo_func (NautilusFileUndoInfo           *info,
                    NautilusFileOperationsDBusData *dbus_data)
 {
     NautilusFileUndoInfoExtract *self = NAUTILUS_FILE_UNDO_INFO_EXTRACT (info);
+    g_autoptr (NautilusFileOpHelper) helper = nautilus_simple_file_op_helper_new ();
+
+    nautilus_file_op_helper_set_delete_callback (helper, file_undo_info_delete_callback);
 
     nautilus_file_operations_delete_async (self->outputs, parent_window,
                                            dbus_data,
-                                           file_undo_info_delete_callback, self);
+                                           helper, self);
 }
 
 static void
@@ -2565,12 +2583,15 @@ compress_undo_func (NautilusFileUndoInfo           *info,
 {
     NautilusFileUndoInfoCompress *self = NAUTILUS_FILE_UNDO_INFO_COMPRESS (info);
     GList *files = NULL;
+    g_autoptr (NautilusFileOpHelper) helper = nautilus_simple_file_op_helper_new ();
+
+    nautilus_file_op_helper_set_delete_callback (helper, file_undo_info_delete_callback);
 
     files = g_list_prepend (files, self->output);
 
     nautilus_file_operations_delete_async (files, parent_window,
                                            dbus_data,
-                                           file_undo_info_delete_callback, self);
+                                           helper, self);
 
     g_list_free (files);
 }
