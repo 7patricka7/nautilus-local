@@ -24,6 +24,13 @@ void quit_loop_callback (NautilusFileUndoManager *undo_manager,
 void test_operation_undo_redo (void);
 void test_operation_undo (void);
 
+void test_nautilus_search_by_mtime (NautilusSearchEngine *engine,
+                                    NautilusSearchEngineTarget target,
+                                    gchar *query_text);
+void test_nautilus_search_by_atime (NautilusSearchEngine *engine,
+                                    NautilusSearchEngineTarget target,
+                                    gchar *query_text);
+
 void create_one_file (gchar *prefix);
 void create_one_empty_directory (gchar *prefix);
 
