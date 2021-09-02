@@ -28,36 +28,14 @@
 #include <gnome-autoar/gnome-autoar.h>
 
 #include "nautilus-file-operations-dbus-data.h"
+#include "nautilus-file-op-callback-types.h"
 
 #define SECONDS_NEEDED_FOR_APROXIMATE_TRANSFER_RATE 1
 
-typedef void (* NautilusCopyCallback)      (GHashTable *debuting_uris,
-					    gboolean    success,
-					    gpointer    callback_data);
-typedef void (* NautilusCreateCallback)    (GFile      *new_file,
-					    gboolean    success,
-					    gpointer    callback_data);
-typedef void (* NautilusOpCallback)        (gboolean    success,
-					    gpointer    callback_data);
-typedef void (* NautilusDeleteCallback)    (GHashTable *debuting_uris,
-					    gboolean    user_cancel,
-					    gpointer    callback_data);
-typedef void (* NautilusMountCallback)     (GVolume    *volume,
-					    gboolean    success,
-					    GObject    *callback_data_object);
-typedef void (* NautilusUnmountCallback)   (gpointer    callback_data);
-typedef void (* NautilusExtractCallback)   (GList    *outputs,
-                                            gpointer  callback_data);
+typedef struct _NautilusFileOpHelper NautilusFileOpHelper;
 
 /* FIXME: int copy_action should be an enum */
 
-void nautilus_file_operations_copy_move   (const GList                    *item_uris,
-                                           const char                     *target_dir_uri,
-                                           GdkDragAction                   copy_action,
-                                           GtkWidget                      *parent_view,
-                                           NautilusFileOperationsDBusData *dbus_data,
-                                           NautilusCopyCallback            done_callback,
-                                           gpointer                        done_callback_data);
 void nautilus_file_operations_empty_trash (GtkWidget                      *parent_view,
                                            gboolean                        ask_confirmation,
                                            NautilusFileOperationsDBusData *dbus_data);
@@ -91,7 +69,7 @@ void nautilus_file_operations_trash_or_delete_async (GList                      
 void nautilus_file_operations_delete_async (GList                          *files,
                                             GtkWindow                      *parent_window,
                                             NautilusFileOperationsDBusData *dbus_data,
-                                            NautilusDeleteCallback          done_callback,
+                                            NautilusFileOpHelper           *helper,
                                             gpointer                        done_callback_data);
 
 void nautilus_file_set_permissions_recursive (const char                     *directory,
@@ -124,7 +102,7 @@ void nautilus_file_operations_copy_async (GList                          *files,
                                           GFile                          *target_dir,
                                           GtkWindow                      *parent_window,
                                           NautilusFileOperationsDBusData *dbus_data,
-                                          NautilusCopyCallback            done_callback,
+                                          NautilusFileOpHelper           *helper,
                                           gpointer                        done_callback_data);
 void nautilus_file_operations_copy_sync (GList                *files,
                                          GFile                *target_dir);
@@ -133,16 +111,11 @@ void nautilus_file_operations_move_async (GList                          *files,
                                           GFile                          *target_dir,
                                           GtkWindow                      *parent_window,
                                           NautilusFileOperationsDBusData *dbus_data,
-                                          NautilusCopyCallback            done_callback,
+                                          NautilusFileOpHelper           *helper,
                                           gpointer                        done_callback_data);
 void nautilus_file_operations_move_sync (GList                *files,
                                          GFile                *target_dir);
 
-void nautilus_file_operations_duplicate (GList                          *files,
-                                         GtkWindow                      *parent_window,
-                                         NautilusFileOperationsDBusData *dbus_data,
-                                         NautilusCopyCallback            done_callback,
-                                         gpointer                        done_callback_data);
 void nautilus_file_operations_link      (GList                          *files,
                                          GFile                          *target_dir,
                                          GtkWindow                      *parent_window,

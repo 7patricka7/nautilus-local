@@ -31,6 +31,7 @@
 #include "nautilus-search-directory.h"
 #include "nautilus-starred-directory.h"
 #include "nautilus-ui-utilities.h"
+#include "nautilus-file-op-helper.h"
 #include <eel/eel-glib-extensions.h>
 #include <eel/eel-string.h>
 #include <eel/eel-debug.h>
@@ -44,6 +45,7 @@
 
 #define NAUTILUS_USER_DIRECTORY_NAME "nautilus"
 #define DEFAULT_NAUTILUS_DIRECTORY_MODE (0755)
+#define MAXIMUM_DISPLAYED_FILE_NAME_LENGTH 50
 
 /* Allowed characters outside alphanumeric for unreserved. */
 #define G_URI_OTHER_UNRESERVED "-._~"
@@ -804,16 +806,19 @@ ensure_dirs_task_ready_cb (GObject      *_source,
     original_dirs = g_hash_table_get_keys (data->original_dirs_hash);
     for (l = original_dirs; l != NULL; l = l->next)
     {
+        g_autoptr (NautilusFileOpHelper) helper = NULL;
+
         original_dir = NAUTILUS_FILE (l->data);
         original_dir_location = nautilus_file_get_location (original_dir);
 
         files = g_hash_table_lookup (data->original_dirs_hash, original_dir);
         locations = locations_from_file_list (files);
+        helper = nautilus_simple_file_op_helper_new ();
 
         nautilus_file_operations_move_async (locations,
                                              original_dir_location,
                                              data->parent_window,
-                                             NULL, NULL, NULL);
+                                             NULL, helper, NULL);
 
         g_list_free_full (locations, g_object_unref);
         g_object_unref (original_dir_location);
@@ -1486,4 +1491,87 @@ location_settings_search_get_recursive_for_location (GFile *location)
     }
 
     return recursive;
+}
+
+static gboolean
+has_invalid_xml_char (char *str)
+{
+    gunichar c;
+
+    while (*str != 0)
+    {
+        c = g_utf8_get_char (str);
+        /* characters XML permits */
+        if (!(c == 0x9 ||
+              c == 0xA ||
+              c == 0xD ||
+              (c >= 0x20 && c <= 0xD7FF) ||
+              (c >= 0xE000 && c <= 0xFFFD) ||
+              (c >= 0x10000 && c <= 0x10FFFF)))
+        {
+            return TRUE;
+        }
+        str = g_utf8_next_char (str);
+    }
+    return FALSE;
+}
+
+gchar *
+nautilus_get_display_basename (GFile *file)
+{
+    GFileInfo *info;
+    gchar *name, *basename, *tmp;
+    GMount *mount;
+
+    if ((mount = nautilus_get_mounted_mount_for_root (file)) != NULL)
+    {
+        name = g_mount_get_name (mount);
+        g_object_unref (mount);
+    }
+    else
+    {
+        info = g_file_query_info (file,
+                                  G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME,
+                                  0,
+                                  g_cancellable_get_current (),
+                                  NULL);
+        name = NULL;
+        if (info)
+        {
+            name = g_strdup (g_file_info_get_display_name (info));
+            g_object_unref (info);
+        }
+    }
+
+    if (name == NULL)
+    {
+        basename = g_file_get_basename (file);
+        if (g_utf8_validate (basename, -1, NULL))
+        {
+            name = basename;
+        }
+        else
+        {
+            name = g_uri_escape_string (basename, G_URI_RESERVED_CHARS_ALLOWED_IN_PATH, TRUE);
+            g_free (basename);
+        }
+    }
+
+    /* Some chars can't be put in the markup we use for the dialogs... */
+    if (has_invalid_xml_char (name))
+    {
+        tmp = name;
+        name = g_uri_escape_string (name, G_URI_RESERVED_CHARS_ALLOWED_IN_PATH, TRUE);
+        g_free (tmp);
+    }
+
+    /* Finally, if the string is too long, truncate it. */
+    if (name != NULL)
+    {
+        tmp = name;
+        name = eel_str_middle_truncate (tmp, MAXIMUM_DISPLAYED_FILE_NAME_LENGTH);
+        g_free (tmp);
+    }
+
+    return name;
 }
