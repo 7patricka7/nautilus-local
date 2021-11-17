@@ -9,13 +9,32 @@ typedef struct {
     gboolean apply_to_all;
 } FileConflictResponse;
 
+typedef struct
+{
+    GFile *source_file;
+    GFile *destination_file;
+    GFile *destination_directory_name;
+    gboolean same_fs;
+    char *suggestion;
+    FileConflictResponse *response;
+    gboolean overwrite;
+} FileConflictInfo;
+
 void file_conflict_response_free (FileConflictResponse *data);
 
-FileConflictResponse * copy_move_conflict_ask_user_action (GtkWindow *parent_window,
-                                                           GFile     *src,
-                                                           GFile     *dest,
-                                                           GFile     *dest_dir,
-                                                           gchar     *suggestion);
+FileConflictInfo * file_conflict_info_new (GFile    *src,
+                                           GFile    *dest,
+                                           GFile    *dest_dir,
+                                           gboolean  same_fs);
+
+void file_conflict_info_free (FileConflictInfo *info);
+
+void copy_move_conflict_ask_user_action (GtkWindow            *parent_window,
+                                         FileConflictResponse *response,
+                                         GFile                *src,
+                                         GFile                *dest,
+                                         GFile                *dest_dir,
+                                         gchar                *suggestion);
 
 enum
 {

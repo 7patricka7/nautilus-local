@@ -121,6 +121,38 @@ file_conflict_response_free (FileConflictResponse *response)
     g_slice_free (FileConflictResponse, response);
 }
 
+FileConflictInfo *
+file_conflict_info_new (GFile    *src,
+                        GFile    *dest,
+                        GFile    *dest_dir,
+                        gboolean  same_fs)
+{
+    FileConflictInfo *info;
+
+    info = g_slice_new0 (FileConflictInfo);
+    info->source_file = g_object_ref (src);
+    info->destination_file = g_object_ref (dest);
+    info->destination_directory_name = g_object_ref (dest_dir);
+    info->same_fs = same_fs;
+    info->suggestion = NULL;
+    info->overwrite = FALSE;
+    info->response = g_slice_new0 (FileConflictResponse);
+    info->response->new_name = NULL;
+
+    return info;
+}
+
+void
+file_conflict_info_free (FileConflictInfo *info)
+{
+    g_object_unref (info->source_file);
+    g_object_unref (info->destination_file);
+    g_object_unref (info->destination_directory_name);
+    g_free (info->suggestion);
+    file_conflict_response_free (info->response);
+    g_slice_free (FileConflictInfo, info);
+}
+
 static void
 set_copy_move_dialog_text (FileConflictDialogData *data)
 {
@@ -502,15 +534,15 @@ run_file_conflict_dialog (gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
-FileConflictResponse *
-copy_move_conflict_ask_user_action (GtkWindow *parent_window,
-                                    GFile     *source_name,
-                                    GFile     *destination_name,
-                                    GFile     *destination_directory_name,
-                                    gchar     *suggestion)
+void
+copy_move_conflict_ask_user_action (GtkWindow            *parent_window,
+                                    FileConflictResponse *response,
+                                    GFile                *source_name,
+                                    GFile                *destination_name,
+                                    GFile                *destination_directory_name,
+                                    gchar                *suggestion)
 {
     FileConflictDialogData *data;
-    FileConflictResponse *response;
 
     data = g_slice_new0 (FileConflictDialogData);
     data->parent = parent_window;
@@ -518,9 +550,7 @@ copy_move_conflict_ask_user_action (GtkWindow *parent_window,
     data->destination_name = destination_name;
     data->destination_directory_name = destination_directory_name;
     data->suggestion = suggestion;
-
-    data->response = g_slice_new0 (FileConflictResponse);
-    data->response->new_name = NULL;
+    data->response = response;
 
     data->on_file_list_ready = copy_move_conflict_on_file_list_ready;
 
@@ -528,10 +558,7 @@ copy_move_conflict_ask_user_action (GtkWindow *parent_window,
                               run_file_conflict_dialog,
                               data);
 
-    response = g_steal_pointer (&data->response);
     g_slice_free (FileConflictDialogData, data);
-
-    return response;
 }
 
 typedef struct
