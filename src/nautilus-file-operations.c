@@ -4641,18 +4641,32 @@ map_possibly_volatile_file_to_real_on_write (GFile              *volatile_file,
     return real_file;
 }
 
-static void copy_move_file (CopyMoveJob  *job,
-                            GFile        *src,
-                            GFile        *dest_dir,
-                            gboolean      same_fs,
-                            gboolean      unique_names,
-                            char        **dest_fs_type,
-                            SourceInfo   *source_info,
-                            TransferInfo *transfer_info,
-                            GHashTable   *debuting_files,
-                            gboolean      overwrite,
-                            gboolean     *skipped_file,
-                            gboolean      readonly_source_fs);
+static void copy_move_file (CopyMoveJob           *job,
+                            GFile                 *src,
+                            GFile                 *dest_dir,
+                            gboolean               same_fs,
+                            gboolean               unique_names,
+                            char                 **dest_fs_type,
+                            SourceInfo            *source_info,
+                            TransferInfo          *transfer_info,
+                            GHashTable            *debuting_files,
+                            GList                **conflicts,
+                            FileConflictResponse  *conflict_response,
+                            gboolean               overwrite,
+                            gboolean              *skipped_file,
+                            gboolean               readonly_source_fs);
+
+static void move_file_prepare (CopyMoveJob           *move_job,
+                               GFile                 *src,
+                               GFile                 *dest_dir,
+                               gboolean               same_fs,
+                               char                 **dest_fs_type,
+                               GHashTable            *debuting_files,
+                               GList                **fallback_files,
+                               GList                **conflicts,
+                               FileConflictResponse  *conflict_response,
+                               gboolean               overwrite,
+                               int                    files_left);
 
 typedef enum
 {
@@ -4795,6 +4809,15 @@ retry:
     return CREATE_DEST_DIR_SUCCESS;
 }
 
+static void handle_copy_conflicts (CopyMoveJob   *copy_job,
+                                   GList         *conflicts,
+                                   gboolean       unique_names,
+                                   char         **dest_fs_type,
+                                   SourceInfo    *source_info,
+                                   TransferInfo  *transfer_info,
+                                   GHashTable    *debuting_files,
+                                   gboolean       readonly_source_fs);
+
 /* a return value of FALSE means retry, i.e.
  * the destination has changed and the source
  * is expected to re-try the preceding
@@ -4826,6 +4849,7 @@ copy_move_directory (CopyMoveJob   *copy_job,
     gboolean local_skipped_file;
     CommonJob *job;
     GFileCopyFlags flags;
+    GList *conflicts = NULL;
 
     job = (CommonJob *) copy_job;
     *skipped_file = FALSE;
@@ -4902,8 +4926,8 @@ retry:
             src_file = g_file_get_child (src,
                                          g_file_info_get_name (info));
             copy_move_file (copy_job, src_file, *dest, same_fs, FALSE, &dest_fs_type,
-                            source_info, transfer_info, NULL, FALSE, &local_skipped_file,
-                            readonly_source_fs);
+                            source_info, transfer_info, NULL, &conflicts, NULL,
+                            FALSE, &local_skipped_file, readonly_source_fs);
 
             if (local_skipped_file)
             {
@@ -4997,6 +5021,14 @@ retry:
         if (debuting_files)
         {
             g_hash_table_replace (debuting_files, g_object_ref (*dest), GINT_TO_POINTER (create_dest));
+        }
+
+        if (conflicts)
+        {
+            conflicts = g_list_reverse (conflicts);
+            handle_copy_conflicts (copy_job, conflicts, FALSE, &dest_fs_type,
+                                   source_info, transfer_info, debuting_files,
+                                   readonly_source_fs);
         }
     }
     else if (IS_IO_ERROR (error, CANCELLED))
@@ -5221,34 +5253,160 @@ query_fs_type (GFile        *file,
     return ret;
 }
 
-static FileConflictResponse *
-handle_copy_move_conflict (CommonJob *job,
-                           GFile     *src,
-                           GFile     *dest,
-                           GFile     *dest_dir)
+static char *
+get_conflict_name_suggestion (GFile *dest_file,
+                              GFile *dest_dir)
 {
-    FileConflictResponse *response;
     g_autofree gchar *basename = NULL;
     g_autoptr (GFile) suggested_file = NULL;
-    g_autofree gchar *suggestion = NULL;
 
-    g_timer_stop (job->time);
-    nautilus_progress_info_pause (job->progress);
+    basename = g_file_get_basename (dest_file);
+    suggested_file = nautilus_generate_unique_file_in_directory (dest_dir,
+                                                                 basename);
+    return g_file_get_basename (suggested_file);
+}
 
-    basename = g_file_get_basename (dest);
-    suggested_file = nautilus_generate_unique_file_in_directory (dest_dir, basename);
-    suggestion = g_file_get_basename (suggested_file);
+static void report_preparing_move_progress (CopyMoveJob *move_job,
+                                            int          total,
+                                            int          left);
 
-    response = copy_move_conflict_ask_user_action (job->parent_window,
-                                                   src,
-                                                   dest,
-                                                   dest_dir,
-                                                   suggestion);
+static void
+handle_copy_conflicts (CopyMoveJob   *copy_job,
+                       GList         *conflicts,
+                       gboolean       unique_names,
+                       char         **dest_fs_type,
+                       SourceInfo    *source_info,
+                       TransferInfo  *transfer_info,
+                       GHashTable    *debuting_files,
+                       gboolean       readonly_source_fs)
+{
+    CommonJob *common_job;
+    FileConflictInfo *conflict;
+    gboolean skipped_file;
 
-    nautilus_progress_info_resume (job->progress);
-    g_timer_continue (job->time);
+    common_job = &copy_job->common;
 
-    return response;
+    g_timer_stop (common_job->time);
+    nautilus_progress_info_pause (common_job->progress);
+
+    for (GList *l = conflicts; l != NULL && !job_aborted (common_job); l = l->next)
+    {
+        conflict = l->data;
+        conflict->suggestion = get_conflict_name_suggestion (conflict->destination_file,
+                                                             conflict->destination_directory_name);
+        copy_move_conflict_ask_user_action (common_job->parent_window,
+                                            conflict->response,
+                                            conflict->source_file,
+                                            conflict->destination_file,
+                                            conflict->destination_directory_name,
+                                            conflict->suggestion);
+
+        if (conflict->response->id == GTK_RESPONSE_CANCEL ||
+            conflict->response->id == GTK_RESPONSE_DELETE_EVENT)
+        {
+            abort_job (common_job);
+            break;
+        }
+
+        if (conflict->response->apply_to_all)
+        {
+            int id = conflict->response->id;
+
+            for (GList *m = l; m != NULL; m = m->next)
+            {
+                conflict = m->data;
+                conflict->response->id = id;
+            }
+            break;
+        }
+    }
+
+    nautilus_progress_info_resume (common_job->progress);
+    g_timer_continue (common_job->time);
+
+    for (GList *l = conflicts; l != NULL && !job_aborted (common_job); l = l->next)
+    {
+        conflict = l->data;
+        skipped_file = FALSE;
+        copy_move_file (copy_job, conflict->source_file, conflict->destination_directory_name,
+                        conflict->same_fs, unique_names, dest_fs_type, source_info,
+                        transfer_info, debuting_files, &conflicts, conflict->response,
+                        conflict->overwrite, &skipped_file, readonly_source_fs);
+
+        if (skipped_file)
+        {
+            source_info_remove_file_from_count (conflict->source_file, common_job, source_info);
+            report_copy_progress (copy_job, source_info, transfer_info);
+        }
+    }
+
+    g_list_free_full (conflicts, (GDestroyNotify) file_conflict_info_free);
+}
+
+static void
+handle_move_conflicts (CopyMoveJob  *move_job,
+                       GList        *conflicts,
+                       char        **dest_fs_type,
+                       GHashTable   *debuting_files,
+                       GList       **fallback_files,
+                       int           files_left)
+{
+    CommonJob *common_job;
+    int total;
+    FileConflictInfo *conflict;
+
+    common_job = &move_job->common;
+    total = g_list_length (move_job->files);
+
+    g_timer_stop (common_job->time);
+    nautilus_progress_info_pause (common_job->progress);
+
+    for (GList *l = conflicts; l != NULL && !job_aborted (common_job); l = l->next)
+    {
+        conflict = l->data;
+        conflict->suggestion = get_conflict_name_suggestion (conflict->destination_file,
+                                                             conflict->destination_directory_name);
+        copy_move_conflict_ask_user_action (common_job->parent_window,
+                                            conflict->response,
+                                            conflict->source_file,
+                                            conflict->destination_file,
+                                            conflict->destination_directory_name,
+                                            conflict->suggestion);
+
+        if (conflict->response->id == GTK_RESPONSE_CANCEL ||
+            conflict->response->id == GTK_RESPONSE_DELETE_EVENT)
+        {
+            abort_job (common_job);
+            break;
+        }
+
+        if (conflict->response->apply_to_all)
+        {
+            int id = conflict->response->id;
+
+            for (GList *m = l; m != NULL; m = m->next)
+            {
+                conflict = m->data;
+                conflict->response->id = id;
+            }
+            break;
+        }
+    }
+
+    nautilus_progress_info_resume (common_job->progress);
+    g_timer_continue (common_job->time);
+
+    for (GList *l = conflicts; l != NULL && !job_aborted (common_job); l = l->next)
+    {
+        conflict = l->data;
+        move_file_prepare (move_job, conflict->source_file,
+                           conflict->destination_directory_name, conflict->same_fs,
+                           dest_fs_type, debuting_files, fallback_files, &conflicts,
+                           conflict->response, conflict->overwrite, files_left);
+        report_preparing_move_progress (move_job, total, --files_left);
+    }
+
+    g_list_free_full (conflicts, (GDestroyNotify) file_conflict_info_free);
 }
 
 static GFile *
@@ -5318,21 +5476,22 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
     return dest;
 }
 
-
 /* Debuting files is non-NULL only for toplevel items */
 static void
-copy_move_file (CopyMoveJob   *copy_job,
-                GFile         *src,
-                GFile         *dest_dir,
-                gboolean       same_fs,
-                gboolean       unique_names,
-                char         **dest_fs_type,
-                SourceInfo    *source_info,
-                TransferInfo  *transfer_info,
-                GHashTable    *debuting_files,
-                gboolean       overwrite,
-                gboolean      *skipped_file,
-                gboolean       readonly_source_fs)
+copy_move_file (CopyMoveJob           *copy_job,
+                GFile                 *src,
+                GFile                 *dest_dir,
+                gboolean               same_fs,
+                gboolean               unique_names,
+                char                 **dest_fs_type,
+                SourceInfo            *source_info,
+                TransferInfo          *transfer_info,
+                GHashTable            *debuting_files,
+                GList                **conflicts,
+                FileConflictResponse  *conflict_response,
+                gboolean               overwrite,
+                gboolean              *skipped_file,
+                gboolean               readonly_source_fs)
 {
     GFile *dest, *new_dest;
     g_autofree gchar *dest_uri = NULL;
@@ -5591,13 +5750,10 @@ retry:
     if (!overwrite &&
         IS_IO_ERROR (error, EXISTS))
     {
+        FileConflictInfo *conflict;
         gboolean source_is_directory;
         gboolean destination_is_directory;
         gboolean is_merge;
-        FileConflictResponse *response;
-
-        source_is_directory = is_dir (src);
-        destination_is_directory = is_dir (dest);
 
         g_error_free (error);
 
@@ -5607,6 +5763,16 @@ retry:
             dest = get_unique_target_file (src, dest_dir, same_fs, *dest_fs_type, unique_name_nr++);
             goto retry;
         }
+
+        if (conflict_response == NULL)
+        {
+            conflict = file_conflict_info_new (src, dest, dest_dir, same_fs);
+            *conflicts = g_list_prepend (*conflicts, conflict);
+            goto out;
+        }
+
+        source_is_directory = is_dir (src);
+        destination_is_directory = is_dir (dest);
 
         is_merge = FALSE;
 
@@ -5633,25 +5799,16 @@ retry:
             goto out;
         }
 
-        response = handle_copy_move_conflict (job, src, dest, dest_dir);
-
-        if (response->id == GTK_RESPONSE_CANCEL ||
-            response->id == GTK_RESPONSE_DELETE_EVENT)
+        if (conflict_response->id == CONFLICT_RESPONSE_SKIP)
         {
-            file_conflict_response_free (response);
-            abort_job (job);
-        }
-        else if (response->id == CONFLICT_RESPONSE_SKIP)
-        {
-            if (response->apply_to_all)
+            if (conflict_response->apply_to_all)
             {
                 job->skip_all_conflict = TRUE;
             }
-            file_conflict_response_free (response);
         }
-        else if (response->id == CONFLICT_RESPONSE_REPLACE)             /* merge/replace */
+        else if (conflict_response->id == CONFLICT_RESPONSE_REPLACE)             /* merge/replace */
         {
-            if (response->apply_to_all)
+            if (conflict_response->apply_to_all)
             {
                 if (is_merge)
                 {
@@ -5663,15 +5820,13 @@ retry:
                 }
             }
             overwrite = TRUE;
-            file_conflict_response_free (response);
             goto retry;
         }
-        else if (response->id == CONFLICT_RESPONSE_RENAME)
+        else if (conflict_response->id == CONFLICT_RESPONSE_RENAME)
         {
             g_object_unref (dest);
             dest = get_target_file_for_display_name (dest_dir,
-                                                     response->new_name);
-            file_conflict_response_free (response);
+                                                     conflict_response->new_name);
             goto retry;
         }
         else
@@ -5856,6 +6011,7 @@ copy_files (CopyMoveJob  *job,
     char *dest_fs_type;
     GFileInfo *inf;
     gboolean readonly_source_fs;
+    GList *conflicts = NULL;
 
     dest_fs_type = NULL;
     readonly_source_fs = FALSE;
@@ -5906,8 +6062,8 @@ copy_files (CopyMoveJob  *job,
                             same_fs, unique_names,
                             &dest_fs_type,
                             source_info, transfer_info,
-                            job->debuting_files,
-                            FALSE, &skipped_file,
+                            job->debuting_files, &conflicts,
+                            NULL, FALSE, &skipped_file,
                             readonly_source_fs);
             g_object_unref (dest);
 
@@ -5918,6 +6074,14 @@ copy_files (CopyMoveJob  *job,
             }
         }
         i++;
+    }
+
+    if (conflicts)
+    {
+        conflicts = g_list_reverse (conflicts);
+        handle_copy_conflicts (job, conflicts, unique_names, &dest_fs_type,
+                               source_info, transfer_info, job->debuting_files,
+                               readonly_source_fs);
     }
 
     g_free (dest_fs_type);
@@ -6161,26 +6325,27 @@ get_files_from_fallbacks (GList *fallbacks)
 }
 
 static void
-move_file_prepare (CopyMoveJob  *move_job,
-                   GFile        *src,
-                   GFile        *dest_dir,
-                   gboolean      same_fs,
-                   char        **dest_fs_type,
-                   GHashTable   *debuting_files,
-                   GList       **fallback_files,
-                   int           files_left)
+move_file_prepare (CopyMoveJob           *move_job,
+                   GFile                 *src,
+                   GFile                 *dest_dir,
+                   gboolean               same_fs,
+                   char                 **dest_fs_type,
+                   GHashTable            *debuting_files,
+                   GList                **fallback_files,
+                   GList                **conflicts,
+                   FileConflictResponse  *conflict_response,
+                   gboolean               overwrite,
+                   int                    files_left)
 {
     GFile *dest, *new_dest;
     g_autofree gchar *dest_uri = NULL;
     GError *error;
     CommonJob *job;
-    gboolean overwrite;
     char *primary, *secondary, *details;
     GFileCopyFlags flags;
     MoveFileCopyFallback *fallback;
     gboolean handled_invalid_filename;
 
-    overwrite = FALSE;
     handled_invalid_filename = *dest_fs_type != NULL;
 
     job = (CommonJob *) move_job;
@@ -6304,15 +6469,22 @@ retry:
     else if (!overwrite &&
              IS_IO_ERROR (error, EXISTS))
     {
+        FileConflictInfo *conflict;
         gboolean source_is_directory;
         gboolean destination_is_directory;
         gboolean is_merge;
-        FileConflictResponse *response;
+
+        g_error_free (error);
+
+        if (conflict_response == NULL)
+        {
+            conflict = file_conflict_info_new (src, dest, dest_dir, same_fs);
+            *conflicts = g_list_prepend (*conflicts, conflict);
+            goto out;
+        }
 
         source_is_directory = is_dir (src);
         destination_is_directory = is_dir (dest);
-
-        g_error_free (error);
 
         is_merge = FALSE;
         if (source_is_directory && destination_is_directory)
@@ -6338,25 +6510,16 @@ retry:
             goto out;
         }
 
-        response = handle_copy_move_conflict (job, src, dest, dest_dir);
-
-        if (response->id == GTK_RESPONSE_CANCEL ||
-            response->id == GTK_RESPONSE_DELETE_EVENT)
+        if (conflict_response->id == CONFLICT_RESPONSE_SKIP)
         {
-            file_conflict_response_free (response);
-            abort_job (job);
-        }
-        else if (response->id == CONFLICT_RESPONSE_SKIP)
-        {
-            if (response->apply_to_all)
+            if (conflict_response->apply_to_all)
             {
                 job->skip_all_conflict = TRUE;
             }
-            file_conflict_response_free (response);
         }
-        else if (response->id == CONFLICT_RESPONSE_REPLACE)             /* merge/replace */
+        else if (conflict_response->id == CONFLICT_RESPONSE_REPLACE)             /* merge/replace */
         {
-            if (response->apply_to_all)
+            if (conflict_response->apply_to_all)
             {
                 if (is_merge)
                 {
@@ -6368,15 +6531,13 @@ retry:
                 }
             }
             overwrite = TRUE;
-            file_conflict_response_free (response);
             goto retry;
         }
-        else if (response->id == CONFLICT_RESPONSE_RENAME)
+        else if (conflict_response->id == CONFLICT_RESPONSE_RENAME)
         {
             g_object_unref (dest);
             dest = get_target_file_for_display_name (dest_dir,
-                                                     response->new_name);
-            file_conflict_response_free (response);
+                                                     conflict_response->new_name);
             goto retry;
         }
         else
@@ -6461,6 +6622,7 @@ move_files_prepare (CopyMoveJob  *job,
     gboolean same_fs;
     int i;
     int total, left;
+    GList *conflicts = NULL;
 
     common = &job->common;
 
@@ -6484,10 +6646,17 @@ move_files_prepare (CopyMoveJob  *job,
         move_file_prepare (job, src, job->destination,
                            same_fs, dest_fs_type,
                            job->debuting_files,
-                           fallbacks,
-                           left);
+                           fallbacks, &conflicts, NULL,
+                           FALSE, left);
         report_preparing_move_progress (job, total, --left);
         i++;
+    }
+
+    if (conflicts)
+    {
+        conflicts = g_list_reverse (conflicts);
+        handle_move_conflicts (job, conflicts, dest_fs_type,
+                               job->debuting_files, fallbacks, left);
     }
 
     *fallbacks = g_list_reverse (*fallbacks);
@@ -6508,6 +6677,7 @@ move_files (CopyMoveJob   *job,
     int i;
     gboolean skipped_file;
     MoveFileCopyFallback *fallback;
+    GList *conflicts;
     common = &job->common;
 
     report_copy_progress (job, source_info, transfer_info);
@@ -6532,7 +6702,7 @@ move_files (CopyMoveJob   *job,
         copy_move_file (job, src, job->destination,
                         same_fs, FALSE, dest_fs_type,
                         source_info, transfer_info,
-                        job->debuting_files,
+                        job->debuting_files, &conflicts, NULL,
                         fallback->overwrite, &skipped_file, FALSE);
         i++;
 
