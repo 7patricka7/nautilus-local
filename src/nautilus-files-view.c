@@ -71,7 +71,7 @@
 #include "nautilus-metadata.h"
 #include "nautilus-mime-actions.h"
 #include "nautilus-module.h"
-#include "nautilus-new-folder-dialog-controller.h"
+#include "nautilus-new-item-dialog-controller.h"
 #include "nautilus-previewer.h"
 #include "nautilus-profile.h"
 #include "nautilus-program-choosing.h"
@@ -175,7 +175,7 @@ typedef struct
     NautilusQuery *search_query;
 
     NautilusRenameFilePopoverController *rename_file_controller;
-    NautilusNewFolderDialogController *new_folder_controller;
+    NautilusNewItemDialogController *new_folder_controller;
     NautilusCompressDialogController *compress_controller;
 
     gboolean supports_zooming;
@@ -276,6 +276,8 @@ typedef struct
 
     gulong name_accepted_handler_id;
     gulong cancelled_handler_id;
+
+    char *new_file_template_uri;
 } NautilusFilesViewPrivate;
 
 /**
@@ -1990,8 +1992,9 @@ nautilus_files_view_rename_file_popover_new (NautilusFilesView *view,
 }
 
 static void
-new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController *controller,
-                                               gpointer                          user_data)
+new_item_dialog_controller_on_name_accepted (NautilusFileNameWidgetController *controller,
+                                             gpointer                          user_data,
+                                             gboolean                          is_create_new_file)
 {
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
@@ -2005,7 +2008,7 @@ new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController 
     priv = nautilus_files_view_get_instance_private (view);
 
     with_selection =
-        nautilus_new_folder_dialog_controller_get_with_selection (priv->new_folder_controller);
+        nautilus_new_item_dialog_controller_get_with_selection (priv->new_folder_controller);
 
     data = new_folder_data_new (view, with_selection);
 
@@ -2019,10 +2022,22 @@ new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController 
 
     parent_uri = nautilus_files_view_get_backing_uri (view);
     parent = nautilus_file_get_by_uri (parent_uri);
-    nautilus_file_operations_new_folder (GTK_WIDGET (view),
-                                         NULL,
-                                         parent_uri, name,
-                                         new_folder_done, data);
+
+
+    if (is_create_new_file)
+    {
+        nautilus_file_operations_new_file_from_template (GTK_WIDGET (view),
+                                                         parent_uri, name,
+                                                         priv->new_file_template_uri,
+                                                         new_folder_done, data);
+    }
+    else
+    {
+        nautilus_file_operations_new_folder (GTK_WIDGET (view),
+                                             NULL,
+                                             parent_uri, name,
+                                             new_folder_done, data);
+    }
 
     g_clear_object (&priv->new_folder_controller);
 
@@ -2036,8 +2051,22 @@ new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController 
 }
 
 static void
-new_folder_dialog_controller_on_cancelled (NautilusNewFolderDialogController *controller,
-                                           gpointer                           user_data)
+new_folder_dialog_controller_on_name_accepted (NautilusFileNameWidgetController *controller,
+                                               gpointer                          user_data)
+{
+    new_item_dialog_controller_on_name_accepted (controller, user_data, FALSE);
+}
+
+static void
+new_file_dialog_controller_on_name_accepted (NautilusFileNameWidgetController *controller,
+                                             gpointer                          user_data)
+{
+    new_item_dialog_controller_on_name_accepted (controller, user_data, TRUE);
+}
+
+static void
+new_item_dialog_controller_on_cancelled (NautilusNewItemDialogController *controller,
+                                         gpointer                         user_data)
 {
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
@@ -2048,6 +2077,46 @@ new_folder_dialog_controller_on_cancelled (NautilusNewFolderDialogController *co
     g_clear_object (&priv->new_folder_controller);
 }
 
+static char *
+generate_name_for_new_item (char              *initial_name,
+                            NautilusDirectory *containing_directory,
+                            gboolean           is_new_file)
+{
+    GString *proposed_name = g_string_new (initial_name);
+    char *ret;
+    int number = 2;
+
+    while (nautilus_directory_get_file_by_name (containing_directory, proposed_name->str))
+    {
+        gint start_offset;
+        gint end_offset;
+        GString *num_str = g_string_new (NULL);
+
+        g_string_free (proposed_name, TRUE);
+        proposed_name = g_string_new (initial_name);
+        g_string_printf (num_str, "%d", number++);
+
+        if (is_new_file)
+        {
+            eel_filename_get_rename_region (initial_name, &start_offset, &end_offset);
+
+            g_string_insert (proposed_name, end_offset, num_str->str);
+            g_string_insert (proposed_name, end_offset, " ");
+        }
+        else
+        {
+            g_string_append (proposed_name, " ");
+            g_string_append (proposed_name, num_str->str);
+        }
+
+        g_string_free (num_str, TRUE);
+    }
+
+    ret = proposed_name->str;
+    g_string_free (proposed_name, FALSE);
+    return ret;
+}
+
 static void
 nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
                                            gboolean           with_selection)
@@ -2055,7 +2124,7 @@ nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
     g_autoptr (NautilusDirectory) containing_directory = NULL;
     NautilusFilesViewPrivate *priv;
     g_autofree char *uri = NULL;
-    g_autofree char *common_prefix = NULL;
+    g_autofree char *proposed_name = NULL;
 
     priv = nautilus_files_view_get_instance_private (view);
 
@@ -2071,14 +2140,19 @@ nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
     {
         g_autolist (NautilusFile) selection = NULL;
         selection = nautilus_view_get_selection (NAUTILUS_VIEW (view));
-        common_prefix = nautilus_get_common_filename_prefix (selection, MIN_COMMON_FILENAME_PREFIX_LENGTH);
+        proposed_name = nautilus_get_common_filename_prefix (selection, MIN_COMMON_FILENAME_PREFIX_LENGTH);
+    }
+    else
+    {
+        proposed_name = generate_name_for_new_item (_("Untitled Folder"), containing_directory, FALSE);
     }
 
     priv->new_folder_controller =
-        nautilus_new_folder_dialog_controller_new (nautilus_files_view_get_containing_window (view),
-                                                   containing_directory,
-                                                   with_selection,
-                                                   common_prefix);
+        nautilus_new_item_dialog_controller_new (nautilus_files_view_get_containing_window (view),
+                                                 containing_directory,
+                                                 with_selection,
+                                                 proposed_name,
+                                                 FALSE);
 
     g_signal_connect (priv->new_folder_controller,
                       "name-accepted",
@@ -2086,7 +2160,7 @@ nautilus_files_view_new_folder_dialog_new (NautilusFilesView *view,
                       view);
     g_signal_connect (priv->new_folder_controller,
                       "cancelled",
-                      (GCallback) new_folder_dialog_controller_on_cancelled,
+                      (GCallback) new_item_dialog_controller_on_cancelled,
                       view);
 }
 
@@ -2262,8 +2336,8 @@ compress_dialog_controller_on_name_accepted (NautilusFileNameWidgetController *c
 }
 
 static void
-compress_dialog_controller_on_cancelled (NautilusNewFolderDialogController *controller,
-                                         gpointer                           user_data)
+compress_dialog_controller_on_cancelled (NautilusNewItemDialogController *controller,
+                                         gpointer                         user_data)
 {
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
@@ -2391,9 +2465,11 @@ nautilus_files_view_new_file (NautilusFilesView *directory_view,
                               const char        *parent_uri,
                               NautilusFile      *source)
 {
-    NewFolderData *data;
-    char *source_uri;
+    char *source_name;
+    char *proposed_name;
     char *container_uri;
+    NautilusFilesViewPrivate *priv;
+    g_autoptr (NautilusDirectory) containing_directory = NULL;
 
     container_uri = NULL;
     if (parent_uri == NULL)
@@ -2413,17 +2489,37 @@ nautilus_files_view_new_file (NautilusFilesView *directory_view,
         return;
     }
 
-    data = setup_new_folder_data (directory_view);
+    containing_directory = nautilus_directory_get_by_uri (container_uri);
+    source_name = nautilus_file_get_name (source);
+    proposed_name = generate_name_for_new_item (source_name, containing_directory, TRUE);
 
-    source_uri = nautilus_file_get_uri (source);
+    priv = nautilus_files_view_get_instance_private (directory_view);
 
-    nautilus_file_operations_new_file_from_template (GTK_WIDGET (directory_view),
-                                                     parent_uri != NULL ? parent_uri : container_uri,
-                                                     NULL,
-                                                     source_uri,
-                                                     new_folder_done, data);
+    if (priv->new_file_template_uri != NULL)
+    {
+        g_free (priv->new_file_template_uri);
+    }
 
-    g_free (source_uri);
+    priv->new_file_template_uri = nautilus_file_get_uri (source);
+
+    priv->new_folder_controller =
+        nautilus_new_item_dialog_controller_new (nautilus_files_view_get_containing_window (directory_view),
+                                                 containing_directory,
+                                                 FALSE,
+                                                 proposed_name,
+                                                 TRUE);
+
+    g_signal_connect (priv->new_folder_controller,
+                      "name-accepted",
+                      (GCallback) new_file_dialog_controller_on_name_accepted,
+                      directory_view);
+    g_signal_connect (priv->new_folder_controller,
+                      "cancelled",
+                      (GCallback) new_item_dialog_controller_on_cancelled,
+                      directory_view);
+
+    g_free (source_name);
+    g_free (proposed_name);
     g_free (container_uri);
 }
 
@@ -9780,6 +9876,8 @@ nautilus_files_view_init (NautilusFilesView *view)
     priv->tag_manager = nautilus_tag_manager_get ();
 
     priv->rename_file_controller = nautilus_rename_file_popover_controller_new ();
+
+    priv->new_file_template_uri = NULL;
 
     nautilus_profile_end (NULL);
 }
