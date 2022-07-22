@@ -86,4 +86,6 @@ void nautilus_application_search (NautilusApplication *application,
                                   NautilusQuery       *query);
 void nautilus_application_startup_common (NautilusApplication *application);
 gboolean nautilus_application_is_sandboxed (void);
+
+void nautilus_application_save_window_state (void);
 G_END_DECLS

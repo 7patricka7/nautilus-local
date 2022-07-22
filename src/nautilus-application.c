@@ -68,6 +68,8 @@
 #include "nautilus-window-slot.h"
 #include "nautilus-window.h"
 
+#define NAUTILUS_APPLICATION_STATE_SAVE_INTERVAL 5
+
 typedef struct
 {
     NautilusProgressPersistenceHandler *progress_handler;
@@ -89,6 +91,9 @@ typedef struct
     NautilusDBusLauncher *dbus_launcher;
 
     guint previewer_selection_id;
+
+    guint state_save_timer_id;
+    GCancellable *state_save_cancellable;
 } NautilusApplicationPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (NautilusApplication, nautilus_application, GTK_TYPE_APPLICATION);
@@ -490,6 +495,23 @@ open_window (NautilusApplication *self,
     return window;
 }
 
+static gchar *
+nautilus_application_get_state_filename (void)
+{
+    return g_build_filename (g_get_user_config_dir (), "nautilus", "running-state", NULL);
+}
+
+static void
+nautilus_application_delete_state_file (void)
+{
+    g_autofree gchar *filename = NULL;
+    g_autoptr (GFile) location = NULL;
+
+    filename = nautilus_application_get_state_filename ();
+    location = g_file_new_for_path (filename);
+    g_file_delete (location, NULL, NULL);
+}
+
 void
 nautilus_application_open_location (NautilusApplication *self,
                                     GFile               *location,
@@ -593,6 +615,10 @@ nautilus_application_finalize (GObject *object)
     g_clear_object (&priv->tag_manager);
 
     g_clear_object (&priv->dbus_launcher);
+
+    g_cancellable_cancel (priv->state_save_cancellable);
+    g_clear_object (&priv->state_save_cancellable);
+    g_clear_handle_id (&priv->state_save_timer_id, g_source_remove);
 
     G_OBJECT_CLASS (nautilus_application_parent_class)->finalize (object);
 }
@@ -1148,6 +1174,8 @@ on_application_shutdown (GApplication *application,
 
     g_list_free (notification_ids);
 
+    nautilus_application_delete_state_file ();
+
     nautilus_icon_info_clear_caches ();
 }
 
@@ -1541,4 +1569,67 @@ nautilus_application_is_sandboxed (void)
     }
 
     return ret;
+}
+
+static void
+state_file_saved (GObject      *source_object,
+                  GAsyncResult *res,
+                  gpointer      user_data)
+{
+    GString *string = user_data;
+    GFile *location = G_FILE (source_object);
+
+    g_file_replace_contents_finish (location, res, NULL, NULL);
+    g_string_free (string, TRUE);
+}
+
+static gboolean
+nautilus_application_save_window_state_cb (gpointer user_data)
+{
+    NautilusApplicationPrivate *priv = user_data;
+    GString *string = g_string_new ("");
+    g_autoptr (GFile) location = NULL;
+    g_autofree gchar *filename = NULL;
+
+    priv->state_save_timer_id = 0;
+
+    for (GList *l = priv->windows; l != NULL; l = l->next)
+    {
+        GList *slots = nautilus_window_get_slots (l->data);
+        g_string_append_printf (string, "[window]\n");
+
+        for (GList *s = slots; s != NULL; s = s->next)
+        {
+            NautilusBookmark *bookmark = nautilus_window_slot_get_bookmark (s->data);
+            g_autofree gchar *uri = NULL;
+
+            uri = nautilus_bookmark_get_uri (bookmark);
+            g_string_append_printf (string, "%s\n", uri);
+        }
+    }
+
+    filename = nautilus_application_get_state_filename ();
+    location = g_file_new_for_path (filename);
+    g_cancellable_cancel (priv->state_save_cancellable);
+    g_clear_object (&priv->state_save_cancellable);
+    priv->state_save_cancellable = g_cancellable_new ();
+    g_file_replace_contents_async (location, string->str, string->len, NULL, FALSE,
+                                   G_FILE_CREATE_NONE, priv->state_save_cancellable,
+                                   state_file_saved, string);
+
+    return G_SOURCE_REMOVE;
+}
+
+void
+nautilus_application_save_window_state (void)
+{
+    NautilusApplication *application = NAUTILUS_APPLICATION (g_application_get_default ());
+    NautilusApplicationPrivate *priv = nautilus_application_get_instance_private (application);
+
+    g_clear_handle_id (&priv->state_save_timer_id, g_source_remove);
+
+    /* Rate limit state saving in order to prevent excessive i/o.  Wait 5 seconds
+     * before saving and allow a future location change to cancel this save. */
+    priv->state_save_timer_id = g_timeout_add_seconds (NAUTILUS_APPLICATION_STATE_SAVE_INTERVAL,
+                                                       nautilus_application_save_window_state_cb, priv);
 }
