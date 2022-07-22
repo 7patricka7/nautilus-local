@@ -1226,6 +1226,7 @@ on_application_shutdown (GApplication *application,
     GList *notification_ids;
     GList *l;
     gchar *notification_id;
+    gboolean always_restore_previous_session;
 
     priv = nautilus_application_get_instance_private (self);
     notification_ids = g_hash_table_get_keys (priv->notifications);
@@ -1238,7 +1239,12 @@ on_application_shutdown (GApplication *application,
 
     g_list_free (notification_ids);
 
-    nautilus_application_delete_state_file ();
+    always_restore_previous_session = g_settings_get_boolean (nautilus_preferences,
+                                                              NAUTILUS_PREFERENCES_ALWAYS_RESTORE_PREVIOUS_SESSION);
+    if (!always_restore_previous_session)
+    {
+        nautilus_application_delete_state_file ();
+    }
 
     nautilus_icon_info_clear_caches ();
 }
