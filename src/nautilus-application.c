@@ -501,6 +501,21 @@ nautilus_application_get_state_filename (void)
     return g_build_filename (g_get_user_config_dir (), "nautilus", "running-state", NULL);
 }
 
+static gboolean
+nautilus_application_state_file_exists (void)
+{
+    g_autoptr (GFile) location = NULL;
+    g_autofree gchar *filename = nautilus_application_get_state_filename ();
+
+    location = g_file_new_for_path (filename);
+    if (location != NULL)
+    {
+        return g_file_query_exists (location, NULL);
+    }
+
+    return FALSE;
+}
+
 static void
 nautilus_application_delete_state_file (void)
 {
@@ -510,6 +525,45 @@ nautilus_application_delete_state_file (void)
     filename = nautilus_application_get_state_filename ();
     location = g_file_new_for_path (filename);
     g_file_delete (location, NULL, NULL);
+}
+
+static void
+nautilus_application_restore_previous_state (NautilusApplication *application)
+{
+    g_autofree gchar *filename = NULL;
+    g_autofree gchar *contents = NULL;
+
+    filename = nautilus_application_get_state_filename ();
+    if (g_file_get_contents (filename, &contents, NULL, NULL))
+    {
+        NautilusOpenFlags flags = NAUTILUS_OPEN_FLAG_NORMAL;
+        NautilusWindow *window = NULL;
+        GStrv lines;
+
+        nautilus_application_delete_state_file ();
+        lines = g_strsplit (contents, "\n", -1);
+        for (gint i = 0; i < g_strv_length (lines); i++)
+        {
+            if (g_strcmp0 (g_strstrip (lines[i]), "[window]") == 0)
+            {
+                window = nautilus_application_create_window (application);
+                flags = NAUTILUS_OPEN_FLAG_NORMAL;
+            }
+            else if (window != NULL && g_strcmp0 (g_strstrip (lines[i]), "") != 0)
+            {
+                g_autoptr (GFile) location = NULL;
+
+                location = g_file_new_for_uri (g_strstrip (lines[i]));
+                if (location != NULL)
+                {
+                    nautilus_application_open_location_full (application, location,
+                                                             flags | NAUTILUS_OPEN_FLAG_DONT_MAKE_ACTIVE,
+                                                             NULL, window, NULL);
+                }
+                flags = NAUTILUS_OPEN_FLAG_NEW_TAB;
+            }
+        }
+    }
 }
 
 void
@@ -954,7 +1008,17 @@ nautilus_application_handle_file_args (NautilusApplication *self,
         g_ptr_array_unref (file_array);
 
         /* No command line options or files, just activate the application */
-        nautilus_application_activate (G_APPLICATION (self));
+
+        if (nautilus_application_state_file_exists ())
+        {
+            /* If the application was launched without arguments, and was not cleanly
+             * exitted previously, launch the restored session. */
+            nautilus_application_restore_previous_state (self);
+        }
+        else
+        {
+            nautilus_application_activate (G_APPLICATION (self));
+        }
         return EXIT_SUCCESS;
     }
 
