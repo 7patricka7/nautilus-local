@@ -161,37 +161,15 @@ bookmark_file_changed_callback (NautilusFile     *file,
     }
 }
 
-gboolean
-nautilus_bookmark_get_is_builtin (NautilusBookmark *bookmark)
+static GUserDirectory
+bookmark_get_xdg_type (NautilusBookmark *bookmark)
 {
-    GUserDirectory xdg_type;
-
-    /* if this is not an XDG dir, it's never builtin */
-    if (!nautilus_bookmark_get_xdg_type (bookmark, &xdg_type))
-    {
-        return FALSE;
-    }
-
-    /* exclude XDG locations which are not in our builtin list */
-    return (xdg_type != G_USER_DIRECTORY_DESKTOP) &&
-           (xdg_type != G_USER_DIRECTORY_TEMPLATES) &&
-           (xdg_type != G_USER_DIRECTORY_PUBLIC_SHARE);
-}
-
-gboolean
-nautilus_bookmark_get_xdg_type (NautilusBookmark *bookmark,
-                                GUserDirectory   *directory)
-{
-    gboolean match;
     GFile *location;
-    const gchar *path;
-    GUserDirectory dir;
+    gboolean match = FALSE;
 
-    match = FALSE;
-
-    for (dir = 0; dir < G_USER_N_DIRECTORIES; dir++)
+    for (GUserDirectory dir = 0; dir < G_USER_N_DIRECTORIES; dir++)
     {
-        path = g_get_user_special_dir (dir);
+        const gchar *path = g_get_user_special_dir (dir);
         if (!path)
         {
             continue;
@@ -203,46 +181,23 @@ nautilus_bookmark_get_xdg_type (NautilusBookmark *bookmark,
 
         if (match)
         {
-            break;
+            return dir;
         }
     }
 
-    if (match && directory != NULL)
-    {
-        *directory = dir;
-    }
-
-    return match;
+    return G_USER_N_DIRECTORIES;
 }
 
-static GIcon *
-get_native_icon (NautilusBookmark *bookmark)
+gboolean
+nautilus_bookmark_get_is_builtin (NautilusBookmark *bookmark)
 {
-    GUserDirectory xdg_type;
-    GIcon *icon = NULL;
+    GUserDirectory xdg_type = bookmark_get_xdg_type (bookmark);
 
-    if (bookmark->file == NULL)
-    {
-        goto out;
-    }
-
-    if (!nautilus_bookmark_get_xdg_type (bookmark, &xdg_type))
-    {
-        goto out;
-    }
-
-    if (xdg_type < G_USER_N_DIRECTORIES)
-    {
-        icon = nautilus_special_directory_get_symbolic_icon (xdg_type);
-    }
-
-out:
-    if (icon == NULL)
-    {
-        icon = g_themed_icon_new (NAUTILUS_ICON_FOLDER);
-    }
-
-    return icon;
+    /* exclude XDG locations which are not in our builtin list */
+    return (xdg_type != G_USER_N_DIRECTORIES) &&
+           (xdg_type != G_USER_DIRECTORY_DESKTOP) &&
+           (xdg_type != G_USER_DIRECTORY_TEMPLATES) &&
+           (xdg_type != G_USER_DIRECTORY_PUBLIC_SHARE);
 }
 
 static void
