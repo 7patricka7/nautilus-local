@@ -45,8 +45,6 @@ enum
     PROP_NAME = 1,
     PROP_CUSTOM_NAME,
     PROP_LOCATION,
-    PROP_ICON,
-    PROP_SYMBOLIC_ICON,
     NUM_PROPERTIES
 };
 
@@ -60,8 +58,6 @@ struct _NautilusBookmark
     char *name;
     gboolean has_custom_name;
     GFile *location;
-    GIcon *icon;
-    GIcon *symbolic_icon;
     NautilusFile *file;
 
     char *scroll_file;
@@ -153,8 +149,8 @@ bookmark_file_changed_callback (NautilusFile     *file,
          * again, noticeing it is gone, leading to a loop.
          * So, the new NautilusFile is created when the bookmark
          * is used again. However, this is not really a problem, as
-         * we don't want to change the icon or anything about the
-         * bookmark just because its not there anymore.
+         * we don't want to change anything about the bookmark just
+         * because its not there anymore.
          */
         g_debug ("%s: trashed", nautilus_bookmark_get_name (bookmark));
         nautilus_bookmark_disconnect_file (bookmark);
@@ -220,8 +216,7 @@ nautilus_bookmark_get_xdg_type (NautilusBookmark *bookmark,
 }
 
 static GIcon *
-get_native_icon (NautilusBookmark *bookmark,
-                 gboolean          symbolic)
+get_native_icon (NautilusBookmark *bookmark)
 {
     GUserDirectory xdg_type;
     GIcon *icon = NULL;
@@ -238,61 +233,16 @@ get_native_icon (NautilusBookmark *bookmark,
 
     if (xdg_type < G_USER_N_DIRECTORIES)
     {
-        if (symbolic)
-        {
-            icon = nautilus_special_directory_get_symbolic_icon (xdg_type);
-        }
-        else
-        {
-            icon = nautilus_special_directory_get_icon (xdg_type);
-        }
+        icon = nautilus_special_directory_get_symbolic_icon (xdg_type);
     }
 
 out:
     if (icon == NULL)
     {
-        if (symbolic)
-        {
-            icon = g_themed_icon_new (NAUTILUS_ICON_FOLDER);
-        }
-        else
-        {
-            icon = g_themed_icon_new (NAUTILUS_ICON_FULLCOLOR_FOLDER);
-        }
+        icon = g_themed_icon_new (NAUTILUS_ICON_FOLDER);
     }
 
     return icon;
-}
-
-static void
-nautilus_bookmark_set_icon_to_default (NautilusBookmark *bookmark)
-{
-    g_autoptr (GIcon) icon = NULL;
-    g_autoptr (GIcon) symbolic_icon = NULL;
-
-    if (!bookmark->exists)
-    {
-        g_debug ("%s: file does not exist, set warning icon", nautilus_bookmark_get_name (bookmark));
-        symbolic_icon = g_themed_icon_new ("dialog-warning-symbolic");
-        icon = g_themed_icon_new ("dialog-warning");
-    }
-    else if (g_file_is_native (bookmark->location))
-    {
-        symbolic_icon = get_native_icon (bookmark, TRUE);
-        icon = get_native_icon (bookmark, FALSE);
-    }
-    else
-    {
-        symbolic_icon = g_themed_icon_new (NAUTILUS_ICON_FOLDER_REMOTE);
-        icon = g_themed_icon_new (NAUTILUS_ICON_FULLCOLOR_FOLDER_REMOTE);
-    }
-
-    g_debug ("%s: setting icon to default", nautilus_bookmark_get_name (bookmark));
-
-    g_object_set (bookmark,
-                  "icon", icon,
-                  "symbolic-icon", symbolic_icon,
-                  NULL);
 }
 
 static void
@@ -343,12 +293,6 @@ nautilus_bookmark_connect_file (NautilusBookmark *bookmark)
                                  G_CALLBACK (bookmark_file_changed_callback), bookmark, 0);
     }
 
-    if (bookmark->icon == NULL ||
-        bookmark->symbolic_icon == NULL)
-    {
-        nautilus_bookmark_set_icon_to_default (bookmark);
-    }
-
     if (bookmark->file != NULL &&
         nautilus_file_check_if_ready (bookmark->file, NAUTILUS_FILE_ATTRIBUTE_INFO))
     {
@@ -365,17 +309,9 @@ static void
 nautilus_bookmark_set_exists (NautilusBookmark *bookmark,
                               gboolean          exists)
 {
-    if (bookmark->exists == exists)
-    {
-        return;
-    }
-
     bookmark->exists = exists;
     g_debug ("%s: setting bookmark to exist: %d",
              nautilus_bookmark_get_name (bookmark), exists);
-
-    /* refresh icon */
-    nautilus_bookmark_set_icon_to_default (bookmark);
 }
 
 static gboolean
@@ -450,34 +386,9 @@ nautilus_bookmark_set_property (GObject      *object,
                                 GParamSpec   *pspec)
 {
     NautilusBookmark *self = NAUTILUS_BOOKMARK (object);
-    GIcon *new_icon;
 
     switch (property_id)
     {
-        case PROP_ICON:
-        {
-            new_icon = g_value_get_object (value);
-
-            if (new_icon != NULL && !g_icon_equal (self->icon, new_icon))
-            {
-                g_clear_object (&self->icon);
-                self->icon = g_object_ref (new_icon);
-            }
-        }
-        break;
-
-        case PROP_SYMBOLIC_ICON:
-        {
-            new_icon = g_value_get_object (value);
-
-            if (new_icon != NULL && !g_icon_equal (self->symbolic_icon, new_icon))
-            {
-                g_clear_object (&self->symbolic_icon);
-                self->symbolic_icon = g_object_ref (new_icon);
-            }
-        }
-        break;
-
         case PROP_LOCATION:
         {
             self->location = g_value_dup_object (value);
@@ -520,18 +431,6 @@ nautilus_bookmark_get_property (GObject    *object,
         }
         break;
 
-        case PROP_ICON:
-        {
-            g_value_set_object (value, self->icon);
-        }
-        break;
-
-        case PROP_SYMBOLIC_ICON:
-        {
-            g_value_set_object (value, self->symbolic_icon);
-        }
-        break;
-
         case PROP_LOCATION:
         {
             g_value_set_object (value, self->location);
@@ -564,8 +463,6 @@ nautilus_bookmark_finalize (GObject *object)
     nautilus_bookmark_disconnect_file (bookmark);
 
     g_object_unref (bookmark->location);
-    g_clear_object (&bookmark->icon);
-    g_clear_object (&bookmark->symbolic_icon);
 
     g_free (bookmark->name);
     g_free (bookmark->scroll_file);
@@ -621,20 +518,6 @@ nautilus_bookmark_class_init (NautilusBookmarkClass *class)
                              "The location of this bookmark",
                              G_TYPE_FILE,
                              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT_ONLY);
-
-    properties[PROP_ICON] =
-        g_param_spec_object ("icon",
-                             "Bookmark's icon",
-                             "The icon of this bookmark",
-                             G_TYPE_ICON,
-                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-    properties[PROP_SYMBOLIC_ICON] =
-        g_param_spec_object ("symbolic-icon",
-                             "Bookmark's symbolic icon",
-                             "The symbolic icon of this bookmark",
-                             G_TYPE_ICON,
-                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties (oclass, NUM_PROPERTIES, properties);
 }
@@ -697,36 +580,6 @@ nautilus_bookmark_compare_with (gconstpointer a,
     }
 
     return 0;
-}
-
-GIcon *
-nautilus_bookmark_get_symbolic_icon (NautilusBookmark *bookmark)
-{
-    g_return_val_if_fail (NAUTILUS_IS_BOOKMARK (bookmark), NULL);
-
-    /* Try to connect a file in case file exists now but didn't earlier. */
-    nautilus_bookmark_connect_file (bookmark);
-
-    if (bookmark->symbolic_icon)
-    {
-        return g_object_ref (bookmark->symbolic_icon);
-    }
-    return NULL;
-}
-
-GIcon *
-nautilus_bookmark_get_icon (NautilusBookmark *bookmark)
-{
-    g_return_val_if_fail (NAUTILUS_IS_BOOKMARK (bookmark), NULL);
-
-    /* Try to connect a file in case file exists now but didn't earlier. */
-    nautilus_bookmark_connect_file (bookmark);
-
-    if (bookmark->icon)
-    {
-        return g_object_ref (bookmark->icon);
-    }
-    return NULL;
 }
 
 GFile *
