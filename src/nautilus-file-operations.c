@@ -1256,7 +1256,6 @@ typedef struct
     GtkMessageType message_type;
     const char *primary_text;
     const char *secondary_text;
-    const char *details_text;
     const char **button_titles;
     gboolean show_all;
     gboolean should_start_inactive;
@@ -1409,27 +1408,6 @@ do_run_simple_dialog (gpointer _data)
         }
     }
 
-    if (data->details_text)
-    {
-        GtkWidget *content_area, *label;
-        content_area = gtk_message_dialog_get_message_area (GTK_MESSAGE_DIALOG (dialog));
-
-        label = gtk_label_new (data->details_text);
-        gtk_label_set_wrap (GTK_LABEL (label), TRUE);
-        gtk_label_set_selectable (GTK_LABEL (label), TRUE);
-        gtk_label_set_xalign (GTK_LABEL (label), 0);
-        /* Ideally, we shouldn’t do this.
-         *
-         * Refer to https://gitlab.gnome.org/GNOME/nautilus/merge_requests/94
-         * and https://gitlab.gnome.org/GNOME/nautilus/issues/270.
-         */
-        gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_MIDDLE);
-        gtk_label_set_max_width_chars (GTK_LABEL (label),
-                                       MAXIMUM_DISPLAYED_ERROR_MESSAGE_LENGTH);
-
-        gtk_box_append (GTK_BOX (content_area), label);
-    }
-
     if (data->dbus_data != NULL)
     {
         guint32 timestamp;
@@ -1462,7 +1440,6 @@ run_simple_dialog_va (CommonJob      *job,
                       GtkMessageType  message_type,
                       char           *primary_text,
                       char           *secondary_text,
-                      const char     *details_text,
                       gboolean        show_all,
                       va_list         varargs)
 {
@@ -1479,7 +1456,6 @@ run_simple_dialog_va (CommonJob      *job,
     data->message_type = message_type;
     data->primary_text = primary_text;
     data->secondary_text = secondary_text;
-    data->details_text = details_text;
     data->show_all = show_all;
     data->completed = FALSE;
     g_mutex_init (&data->mutex);
@@ -1527,11 +1503,10 @@ run_simple_dialog_va (CommonJob      *job,
 }
 
 static int
-run_error (CommonJob  *job,
-           char       *primary_text,
-           char       *secondary_text,
-           const char *details_text,
-           gboolean    show_all,
+run_error (CommonJob *job,
+           char      *primary_text,
+           char      *secondary_text,
+           gboolean   show_all,
            ...)
 {
     va_list varargs;
@@ -1542,7 +1517,6 @@ run_error (CommonJob  *job,
                                 GTK_MESSAGE_ERROR,
                                 primary_text,
                                 secondary_text,
-                                details_text,
                                 show_all,
                                 varargs);
     va_end (varargs);
@@ -1550,11 +1524,10 @@ run_error (CommonJob  *job,
 }
 
 static int
-run_warning (CommonJob  *job,
-             char       *primary_text,
-             char       *secondary_text,
-             const char *details_text,
-             gboolean    show_all,
+run_warning (CommonJob *job,
+             char      *primary_text,
+             char      *secondary_text,
+             gboolean   show_all,
              ...)
 {
     va_list varargs;
@@ -1565,7 +1538,6 @@ run_warning (CommonJob  *job,
                                 GTK_MESSAGE_WARNING,
                                 primary_text,
                                 secondary_text,
-                                details_text,
                                 show_all,
                                 varargs);
     va_end (varargs);
@@ -1573,11 +1545,10 @@ run_warning (CommonJob  *job,
 }
 
 static int
-run_question (CommonJob  *job,
-              char       *primary_text,
-              char       *secondary_text,
-              const char *details_text,
-              gboolean    show_all,
+run_question (CommonJob *job,
+              char      *primary_text,
+              char      *secondary_text,
+              gboolean   show_all,
               ...)
 {
     va_list varargs;
@@ -1588,7 +1559,6 @@ run_question (CommonJob  *job,
                                 GTK_MESSAGE_QUESTION,
                                 primary_text,
                                 secondary_text,
-                                details_text,
                                 show_all,
                                 varargs);
     va_end (varargs);
@@ -1596,12 +1566,11 @@ run_question (CommonJob  *job,
 }
 
 static int
-run_cancel_or_skip_warning (CommonJob  *job,
-                            char       *primary_text,
-                            char       *secondary_text,
-                            const char *details_text,
-                            int         total_operations,
-                            int         operations_remaining)
+run_cancel_or_skip_warning (CommonJob *job,
+                            char      *primary_text,
+                            char      *secondary_text,
+                            int        total_operations,
+                            int        operations_remaining)
 {
     int response;
 
@@ -1610,7 +1579,6 @@ run_cancel_or_skip_warning (CommonJob  *job,
         response = run_warning (job,
                                 primary_text,
                                 secondary_text,
-                                details_text,
                                 FALSE,
                                 CANCEL,
                                 NULL);
@@ -1620,7 +1588,6 @@ run_cancel_or_skip_warning (CommonJob  *job,
         response = run_warning (job,
                                 primary_text,
                                 secondary_text,
-                                details_text,
                                 operations_remaining > 1,
                                 CANCEL, SKIP_ALL, SKIP,
                                 NULL);
@@ -1687,7 +1654,6 @@ confirm_delete_from_trash (CommonJob *job,
     response = run_warning (job,
                             prompt,
                             g_strdup (_("If you delete an item, it will be permanently lost.")),
-                            NULL,
                             FALSE,
                             CANCEL, DELETE,
                             NULL);
@@ -1706,7 +1672,6 @@ confirm_empty_trash (CommonJob *job)
     response = run_warning (job,
                             prompt,
                             g_strdup (_("All items in the Trash will be permanently deleted.")),
-                            NULL,
                             FALSE,
                             CANCEL, EMPTY_TRASH,
                             NULL);
@@ -1750,7 +1715,6 @@ confirm_delete_directly (CommonJob *job,
     response = run_warning (job,
                             prompt,
                             g_strdup (_("If you delete an item, it will be permanently lost.")),
-                            NULL,
                             FALSE,
                             CANCEL, DELETE,
                             NULL);
@@ -2021,7 +1985,6 @@ file_deleted_callback (GFile    *file,
     TransferInfo *transfer_info;
     char *primary;
     char *secondary;
-    char *details = NULL;
     int response;
     g_autofree gchar *basename = NULL;
 
@@ -2057,9 +2020,9 @@ file_deleted_callback (GFile    *file,
                     g_strdup_printf (_("You do not have sufficient permissions "
                                        "to delete the folder “%s”."),
                                      basename) :
-                    g_strdup_printf (_("There was an error deleting the "
-                                       "folder “%s”."),
-                                     basename);
+                    g_strdup_printf (_("While deleting the folder “%s” there was an error: “%s”"),
+                                     basename,
+                                     error->message);
     }
     else
     {
@@ -2067,17 +2030,14 @@ file_deleted_callback (GFile    *file,
                     g_strdup_printf (_("You do not have sufficient permissions "
                                        "to delete the file “%s”."),
                                      basename) :
-                    g_strdup_printf (_("There was an error deleting the "
-                                       "file “%s”."),
-                                     basename);
+                    g_strdup_printf (_("While deleting the file “%s” there was an error: “%s”"),
+                                     basename,
+                                     error->message);
     }
-
-    details = error->message;
 
     response = run_cancel_or_skip_warning (job,
                                            primary,
                                            secondary,
-                                           details,
                                            source_info->num_files,
                                            source_info->num_files - transfer_info->num_files);
 
@@ -2324,7 +2284,7 @@ trash_file (CommonJob     *job,
             GList        **to_delete)
 {
     GError *error;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     int response;
     g_autofree gchar *basename = NULL;
 
@@ -2364,25 +2324,21 @@ trash_file (CommonJob     *job,
 
     basename = get_basename (file);
     /* Translators: %s is a file name */
-    primary = g_strdup_printf (_("“%s” can’t be put in the trash. Do you want "
-                                 "to delete it immediately?"),
-                               basename);
+    primary = g_strdup_printf (_("Delete “%s”?"), basename);
 
-    details = NULL;
     secondary = NULL;
-    if (!IS_IO_ERROR (error, NOT_SUPPORTED))
-    {
-        details = error->message;
-    }
-    else if (!g_file_is_native (file))
+    if (IS_IO_ERROR (error, NOT_SUPPORTED) && !g_file_is_native (file))
     {
         secondary = g_strdup (_("This remote location does not support sending items to the trash."));
+    }
+    else 
+    {
+        secondary = g_strdup (_("The file can’t be put in the trash."));
     }
 
     response = run_question (job,
                              primary,
                              secondary,
-                             details,
                              (source_info->num_files - transfer_info->num_files) > 1,
                              CANCEL, SKIP_ALL, SKIP, DELETE_ALL, DELETE,
                              NULL);
@@ -3364,7 +3320,7 @@ scan_dir (GFile      *dir,
     GError *error;
     GFile *subdir;
     GFileEnumerator *enumerator;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     int response;
     SourceInfo saved_info;
     g_autolist (GFile) subdirs = NULL;
@@ -3436,7 +3392,6 @@ retry:
             g_autofree gchar *basename = NULL;
 
             primary = get_scan_primary (source_info->op);
-            details = NULL;
             basename = get_basename (dir);
 
             if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -3447,15 +3402,15 @@ retry:
             }
             else
             {
-                secondary = g_strdup_printf (_("There was an error getting information about the "
-                                               "files in the folder “%s”."), basename);
-                details = error->message;
+                secondary = g_strdup_printf (_("When getting information about the files in the folder “%s” "
+                                               "there was an error: “%s”"),
+                                             basename,
+                                             error->message);
             }
 
             response = run_warning (job,
                                     primary,
                                     secondary,
-                                    details,
                                     FALSE,
                                     CANCEL, RETRY, SKIP,
                                     NULL);
@@ -3498,7 +3453,6 @@ retry:
         g_autofree gchar *basename = NULL;
 
         primary = get_scan_primary (source_info->op);
-        details = NULL;
         basename = get_basename (dir);
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -3508,9 +3462,9 @@ retry:
         }
         else
         {
-            secondary = g_strdup_printf (_("There was an error reading the folder “%s”."),
-                                         basename);
-            details = error->message;
+            secondary = g_strdup_printf (_("While reading the folder “%s” there was an error: “%s”"),
+                                         basename,
+                                         error->message);
         }
         /* set show_all to TRUE here, as we don't know how many
          * files we'll end up processing yet.
@@ -3518,7 +3472,6 @@ retry:
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                details,
                                 TRUE,
                                 CANCEL, SKIP_ALL, SKIP, RETRY,
                                 NULL);
@@ -3573,7 +3526,6 @@ scan_file (GFile      *file,
     GFile *dir;
     char *primary;
     char *secondary;
-    char *details;
     int response;
 
     dirs = g_queue_new ();
@@ -3613,7 +3565,6 @@ retry:
         g_autofree gchar *basename = NULL;
 
         primary = get_scan_primary (source_info->op);
-        details = NULL;
         basename = get_basename (file);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -3623,9 +3574,9 @@ retry:
         }
         else
         {
-            secondary = g_strdup_printf (_("There was an error getting information about “%s”."),
-                                         basename);
-            details = error->message;
+            secondary = g_strdup_printf (_("While getting information about “%s” there was an error: “%s”"),
+                                         basename,
+                                         error->message);
         }
         /* set show_all to TRUE here, as we don't know how many
          * files we'll end up processing yet.
@@ -3633,7 +3584,6 @@ retry:
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                details,
                                 TRUE,
                                 CANCEL, SKIP_ALL, SKIP, RETRY,
                                 NULL);
@@ -3715,7 +3665,7 @@ verify_destination (CommonJob  *job,
     const char *fs_type;
     guint64 free_size;
     guint64 size_difference;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     int response;
     GFileType file_type;
     gboolean dest_is_symlink = FALSE;
@@ -3747,7 +3697,6 @@ retry:
 
         basename = get_basename (dest);
         primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
-        details = NULL;
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -3755,14 +3704,13 @@ retry:
         }
         else
         {
-            secondary = g_strdup (_("There was an error getting information about the destination."));
-            details = error->message;
+            secondary = g_strdup_printf (_("There was an error getting information about the destination: “%s”"),
+                                         error->message);
         }
 
         response = run_error (job,
                               primary,
                               secondary,
-                              details,
                               FALSE,
                               CANCEL, RETRY,
                               NULL);
@@ -3814,7 +3762,6 @@ retry:
         run_error (job,
                    primary,
                    secondary,
-                   NULL,
                    FALSE,
                    CANCEL,
                    NULL);
@@ -3864,17 +3811,14 @@ retry:
             basename = get_basename (dest);
             size_difference = required_size - free_size;
             primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
-            secondary = g_strdup (_("There is not enough space on the destination."
-                                    " Try to remove files to make space."));
-
             formatted_size = g_format_size (size_difference);
-            details = g_strdup_printf (_("%s more space is required to copy to the destination."),
-                                       formatted_size);
+            secondary = g_strdup_printf (_("There is not enough space on the destination, %s more space"
+                                           " is required."),
+                                         formatted_size);
 
             response = run_warning (job,
                                     primary,
                                     secondary,
-                                    details,
                                     FALSE,
                                     CANCEL,
                                     COPY_FORCE,
@@ -3913,7 +3857,6 @@ retry:
         run_error (job,
                    primary,
                    secondary,
-                   NULL,
                    FALSE,
                    CANCEL,
                    NULL);
@@ -4689,7 +4632,7 @@ create_dest_dir (CommonJob  *job,
 {
     GError *error;
     GFile *new_dest, *dest_dir;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     int response;
     gboolean handled_invalid_filename;
     gboolean res;
@@ -4759,7 +4702,6 @@ retry:
         }
 
         primary = g_strdup (_("Error while copying."));
-        details = NULL;
         basename = get_basename (src);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -4770,15 +4712,14 @@ retry:
         }
         else
         {
-            secondary = g_strdup_printf (_("There was an error creating the folder “%s”."),
-                                         basename);
-            details = error->message;
+            secondary = g_strdup_printf (_("While creating the folder “%s” there was an error: “%s”"),
+                                         basename,
+                                         error->message);
         }
 
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                details,
                                 FALSE,
                                 CANCEL, SKIP, RETRY,
                                 NULL);
@@ -4838,7 +4779,7 @@ copy_move_directory (CopyMoveJob   *copy_job,
     GError *error;
     GFile *src_file;
     GFileEnumerator *enumerator;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     char *dest_fs_type;
     int response;
     gboolean skip_error;
@@ -4952,7 +4893,6 @@ retry:
             {
                 primary = g_strdup (_("Error while copying."));
             }
-            details = NULL;
             basename = get_basename (src);
 
             if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -4962,16 +4902,15 @@ retry:
             }
             else
             {
-                secondary = g_strdup_printf (_("There was an error getting information about "
-                                               "the files in the folder “%s”."),
-                                             basename);
-                details = error->message;
+                secondary = g_strdup_printf (_("While getting information about the files in the folder “%s” "
+                                               "there was an error: “%s”"),
+                                             basename,
+                                             error->message);
             }
 
             response = run_warning (job,
                                     primary,
                                     secondary,
-                                    details,
                                     FALSE,
                                     CANCEL, _("_Skip files"),
                                     NULL);
@@ -5034,7 +4973,6 @@ retry:
         {
             primary = g_strdup (_("Error while copying."));
         }
-        details = NULL;
         basename = get_basename (src);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -5044,16 +4982,14 @@ retry:
         }
         else
         {
-            secondary = g_strdup_printf (_("There was an error reading the folder “%s”."),
-                                         basename);
-
-            details = error->message;
+            secondary = g_strdup_printf (_("While reading the folder “%s” there was an error: “%s”"),
+                                         basename,
+                                         error->message);
         }
 
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                details,
                                 FALSE,
                                 CANCEL, SKIP, RETRY,
                                 NULL);
@@ -5105,13 +5041,12 @@ retry:
             }
             basename = get_basename (src);
             primary = g_strdup_printf (_("Error while moving “%s”."), basename);
-            secondary = g_strdup (_("Could not remove the source folder."));
-            details = error->message;
+            secondary = g_strdup_printf (_("Could not remove the source folder: “%s”"),
+                                         error->message);
 
             response = run_cancel_or_skip_warning (job,
                                                    primary,
                                                    secondary,
-                                                   details,
                                                    source_info->num_files,
                                                    source_info->num_files - transfer_info->num_files);
 
@@ -5321,12 +5256,12 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
         {
             primary = g_strdup (_("Error while copying."));
         }
-        secondary = g_strdup (_("There was an error getting information about the source."));
+        secondary = g_strdup_printf (_("While getting information about the source there was an error: “%s”"),
+                                     error->message);
 
         run_error (job,
                    primary,
                    secondary,
-                   error->message,
                    FALSE,
                    CANCEL,
                    NULL);
@@ -5361,7 +5296,7 @@ copy_move_file (CopyMoveJob   *copy_job,
     g_autofree gchar *dest_uri = NULL;
     GError *error;
     GFileCopyFlags flags;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     ProgressData pdata;
     gboolean would_recurse;
     CommonJob *job;
@@ -5430,7 +5365,6 @@ copy_move_file (CopyMoveJob   *copy_job,
         response = run_cancel_or_skip_warning (job,
                                                primary,
                                                secondary,
-                                               NULL,
                                                source_info->num_files,
                                                source_info->num_files - transfer_info->num_files);
 
@@ -5472,7 +5406,6 @@ copy_move_file (CopyMoveJob   *copy_job,
         response = run_cancel_or_skip_warning (job,
                                                primary,
                                                secondary,
-                                               NULL,
                                                source_info->num_files,
                                                source_info->num_files - transfer_info->num_files);
 
@@ -5747,7 +5680,6 @@ retry:
                 secondary = g_strdup_printf (_("Could not remove the already existing file "
                                                "with the same name in %s."),
                                              filename);
-                details = error->message;
 
                 /* setting TRUE on show_all here, as we could have
                  * another error on the same file later.
@@ -5755,7 +5687,6 @@ retry:
                 response = run_warning (job,
                                         primary,
                                         secondary,
-                                        details,
                                         TRUE,
                                         CANCEL, SKIP_ALL, SKIP,
                                         NULL);
@@ -5835,14 +5766,13 @@ retry:
         basename = get_basename (src);
         primary = g_strdup_printf (_("Error while copying “%s”."), basename);
         filename = get_truncated_parse_name (dest_dir);
-        secondary = g_strdup_printf (_("There was an error copying the file into %s."),
-                                     filename);
-        details = error->message;
+        secondary = g_strdup_printf (_("While copying the file into %s there was an error: “%s”"),
+                                     filename,
+                                     error->message);
 
         response = run_cancel_or_skip_warning (job,
                                                primary,
                                                secondary,
-                                               details,
                                                source_info->num_files,
                                                source_info->num_files - transfer_info->num_files);
 
@@ -6206,7 +6136,7 @@ move_file_prepare (CopyMoveJob  *move_job,
     GError *error;
     CommonJob *job;
     gboolean overwrite;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     GFileCopyFlags flags;
     MoveFileCopyFallback *fallback;
     gboolean handled_invalid_filename;
@@ -6251,7 +6181,6 @@ move_file_prepare (CopyMoveJob  *move_job,
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                NULL,
                                 files_left > 1,
                                 CANCEL, SKIP_ALL, SKIP,
                                 NULL);
@@ -6294,7 +6223,6 @@ move_file_prepare (CopyMoveJob  *move_job,
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                NULL,
                                 files_left > 1,
                                 CANCEL, SKIP_ALL, SKIP,
                                 NULL);
@@ -6488,15 +6416,13 @@ retry:
         basename = get_basename (src);
         primary = g_strdup_printf (_("Error while moving “%s”."), basename);
         filename = get_truncated_parse_name (dest_dir);
-        secondary = g_strdup_printf (_("There was an error moving the file into %s."),
-                                     filename);
-
-        details = error->message;
+        secondary = g_strdup_printf (_("While moving the file into %s there was an error: “%s”"),
+                                     filename,
+                                     error->message);
 
         response = run_warning (job,
                                 primary,
                                 secondary,
-                                details,
                                 files_left > 1,
                                 CANCEL, SKIP_ALL, SKIP,
                                 NULL);
@@ -6898,7 +6824,7 @@ link_file (CopyMoveJob  *job,
     gboolean not_local;
     GError *error;
     CommonJob *common;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     int response;
     gboolean handled_invalid_filename;
 
@@ -7001,27 +6927,24 @@ retry:
         if (not_local)
         {
             secondary = g_strdup (_("Symbolic links only supported for local files"));
-            details = NULL;
         }
         else if (IS_IO_ERROR (error, NOT_SUPPORTED))
         {
             secondary = g_strdup (_("The target doesn’t support symbolic links."));
-            details = NULL;
         }
         else
         {
             g_autofree gchar *filename = NULL;
 
             filename = get_truncated_parse_name (dest_dir);
-            secondary = g_strdup_printf (_("There was an error creating the symlink in %s."),
-                                         filename);
-            details = error->message;
+            secondary = g_strdup_printf (_("While creating the symlink in %s there was an error: “%s”"),
+                                         filename,
+                                         error->message);
         }
 
         response = run_warning (common,
                                 primary,
                                 secondary,
-                                details,
                                 files_left > 1,
                                 CANCEL, SKIP_ALL, SKIP,
                                 NULL);
@@ -7600,7 +7523,7 @@ create_task_thread_func (GTask        *task,
     GError *error;
     gboolean res;
     gboolean filename_is_utf8;
-    char *primary, *secondary, *details;
+    char *primary, *secondary;
     int response;
     char *data;
     gsize length;
@@ -7946,15 +7869,13 @@ retry:
                                            basename);
             }
             parse_name = get_truncated_parse_name (job->dest_dir);
-            secondary = g_strdup_printf (_("There was an error creating the directory in %s."),
-                                         parse_name);
-
-            details = error->message;
+            secondary = g_strdup_printf (_("While creating the directory in %s there was an error: “%s”"),
+                                         parse_name,
+                                         error->message);
 
             response = run_warning (common,
                                     primary,
                                     secondary,
-                                    details,
                                     FALSE,
                                     CANCEL, SKIP,
                                     NULL);
@@ -8634,7 +8555,6 @@ extract_job_on_error (AutoarExtractor *extractor,
                                               g_strdup_printf (_("There was an error while extracting “%s”."),
                                                                basename),
                                               g_strdup (error->message),
-                                              NULL,
                                               extract_job->total_files,
                                               remaining_files);
 
@@ -8718,7 +8638,6 @@ extract_job_on_scanned (AutoarExtractor *extractor,
                                                              basename));
         run_error (&extract_job->common,
                    g_strdup_printf (_("Not enough free space to extract %s"), basename),
-                   NULL,
                    NULL,
                    FALSE,
                    CANCEL,
@@ -9150,7 +9069,6 @@ compress_job_on_error (AutoarCompressor *compressor,
     run_error ((CommonJob *) compress_job,
                g_strdup (_("There was an error while compressing files.")),
                g_strdup (error->message),
-               NULL,
                FALSE,
                CANCEL,
                NULL);
