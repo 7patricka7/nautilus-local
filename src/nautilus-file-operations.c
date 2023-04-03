@@ -1341,7 +1341,6 @@ typedef struct
 {
     GtkWindow **parent_window;
     NautilusFileOperationsDBusData *dbus_data;
-    GtkMessageType message_type;
     const char *primary_text;
     const char *secondary_text;
     DialogResponse response_options[MAX_NUM_RESPONSES];
@@ -1522,22 +1521,23 @@ do_run_simple_dialog (gpointer _data)
  *  avoid doing that everywhere. So, make sure they are strduped */
 
 static DialogResponse
-run_simple_dialog_va (CommonJob      *job,
-                      GtkMessageType  message_type,
-                      char           *primary_text,
-                      char           *secondary_text,
-                      gboolean        show_all,
-                      va_list         varargs)
+run_dialog (CommonJob *job,
+            char      *primary_text,
+            char      *secondary_text,
+            gboolean   show_all,
+            ...)
 {
+    va_list varargs;
     RunSimpleDialogData *data;
     DialogResponse response;
+
+    va_start (varargs, show_all);
 
     g_timer_stop (job->time);
 
     data = g_new0 (RunSimpleDialogData, 1);
     data->parent_window = &job->parent_window;
     data->dbus_data = job->dbus_data;
-    data->message_type = message_type;
     data->primary_text = primary_text;
     data->secondary_text = secondary_text;
     data->show_all = show_all;
@@ -1580,71 +1580,9 @@ run_simple_dialog_va (CommonJob      *job,
 
     g_free (primary_text);
     g_free (secondary_text);
+    va_end (varargs);
 
     return response;
-}
-
-static DialogResponse
-run_error (CommonJob  *job,
-           char       *primary_text,
-           char       *secondary_text,
-           gboolean    show_all,
-           ...)
-{
-    va_list varargs;
-    DialogResponse res;
-
-    va_start (varargs, show_all);
-    res = run_simple_dialog_va (job,
-                                GTK_MESSAGE_ERROR,
-                                primary_text,
-                                secondary_text,
-                                show_all,
-                                varargs);
-    va_end (varargs);
-    return res;
-}
-
-static DialogResponse
-run_warning (CommonJob  *job,
-             char       *primary_text,
-             char       *secondary_text,
-             gboolean    show_all,
-             ...)
-{
-    va_list varargs;
-    DialogResponse res;
-
-    va_start (varargs, show_all);
-    res = run_simple_dialog_va (job,
-                                GTK_MESSAGE_WARNING,
-                                primary_text,
-                                secondary_text,
-                                show_all,
-                                varargs);
-    va_end (varargs);
-    return res;
-}
-
-static DialogResponse
-run_question (CommonJob  *job,
-              char       *primary_text,
-              char       *secondary_text,
-              gboolean    show_all,
-              ...)
-{
-    va_list varargs;
-    DialogResponse res;
-
-    va_start (varargs, show_all);
-    res = run_simple_dialog_va (job,
-                                GTK_MESSAGE_QUESTION,
-                                primary_text,
-                                secondary_text,
-                                show_all,
-                                varargs);
-    va_end (varargs);
-    return res;
 }
 
 static DialogResponse
@@ -1656,21 +1594,21 @@ run_cancel_or_skip_warning (CommonJob *job,
 {
     if (total_operations == 1)
     {
-        return run_warning (job,
-                            primary_text,
-                            secondary_text,
-                            FALSE,
-                            RESPONSE_CANCEL,
-                            NULL);
+        return run_dialog (job,
+                           primary_text,
+                           secondary_text,
+                           FALSE,
+                           RESPONSE_CANCEL,
+                           NULL);
     }
     else
     {
-        return run_warning (job,
-                            primary_text,
-                            secondary_text,
-                            operations_remaining > 1,
-                            RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
-                            NULL);
+        return run_dialog (job,
+                           primary_text,
+                           secondary_text,
+                           operations_remaining > 1,
+                           RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
+                           NULL);
     }
 }
 
@@ -1763,12 +1701,12 @@ confirm_delete_from_trash (CommonJob *job,
                                   file_count);
     }
 
-    response = run_warning (job,
-                            prompt,
-                            g_strdup (_("If you delete an item, it will be permanently lost.")),
-                            FALSE,
-                            RESPONSE_CANCEL, RESPONSE_DELETE,
-                            NULL);
+    response = run_dialog (job,
+                           prompt,
+                           g_strdup (_("If you delete an item, it will be permanently lost.")),
+                           FALSE,
+                           RESPONSE_CANCEL, RESPONSE_DELETE,
+                           NULL);
 
     return (response == RESPONSE_DELETE);
 }
@@ -1781,12 +1719,12 @@ confirm_empty_trash (CommonJob *job)
 
     prompt = g_strdup (_("Empty all items from Trash?"));
 
-    response = run_warning (job,
-                            prompt,
-                            g_strdup (_("All items in the Trash will be permanently deleted.")),
-                            FALSE,
-                            RESPONSE_CANCEL, RESPONSE_EMPTY_TRASH,
-                            NULL);
+    response = run_dialog (job,
+                           prompt,
+                           g_strdup (_("All items in the Trash will be permanently deleted.")),
+                           FALSE,
+                           RESPONSE_CANCEL, RESPONSE_EMPTY_TRASH,
+                           NULL);
 
     return (response == RESPONSE_EMPTY_TRASH);
 }
@@ -1824,12 +1762,12 @@ confirm_delete_directly (CommonJob *job,
                                   file_count);
     }
 
-    response = run_warning (job,
-                            prompt,
-                            g_strdup (_("If you delete an item, it will be permanently lost.")),
-                            FALSE,
-                            RESPONSE_CANCEL, RESPONSE_DELETE,
-                            NULL);
+    response = run_dialog (job,
+                           prompt,
+                           g_strdup (_("If you delete an item, it will be permanently lost.")),
+                           FALSE,
+                           RESPONSE_CANCEL, RESPONSE_DELETE,
+                           NULL);
 
     return response == RESPONSE_DELETE;
 }
@@ -2437,12 +2375,12 @@ trash_file (CommonJob     *job,
         secondary = g_strdup (_("The file can’t be put in the trash."));
     }
 
-    response = run_question (job,
-                             primary,
-                             secondary,
-                             (source_info->num_files - transfer_info->num_files) > 1,
-                             RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_DELETE_ALL, RESPONSE_DELETE,
-                             NULL);
+    response = run_dialog (job,
+                           primary,
+                           secondary,
+                           (source_info->num_files - transfer_info->num_files) > 1,
+                           RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_DELETE_ALL, RESPONSE_DELETE,
+                           NULL);
 
     if (response == RESPONSE_CANCEL)
     {
@@ -3509,12 +3447,12 @@ retry:
                                              error->message);
             }
 
-            response = run_warning (job,
-                                    primary,
-                                    secondary,
-                                    FALSE,
-                                    RESPONSE_CANCEL, RESPONSE_RETRY, RESPONSE_SKIP,
-                                    NULL);
+            response = run_dialog (job,
+                                   primary,
+                                   secondary,
+                                   FALSE,
+                                   RESPONSE_CANCEL, RESPONSE_RETRY, RESPONSE_SKIP,
+                                   NULL);
 
             g_error_free (error);
 
@@ -3570,12 +3508,12 @@ retry:
         /* set show_all to TRUE here, as we don't know how many
          * files we'll end up processing yet.
          */
-        response = run_warning (job,
-                                primary,
-                                secondary,
-                                TRUE,
-                                RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_RETRY,
-                                NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               TRUE,
+                               RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_RETRY,
+                               NULL);
 
         g_error_free (error);
 
@@ -3682,12 +3620,12 @@ retry:
         /* set show_all to TRUE here, as we don't know how many
          * files we'll end up processing yet.
          */
-        response = run_warning (job,
-                                primary,
-                                secondary,
-                                TRUE,
-                                RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_RETRY,
-                                NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               TRUE,
+                               RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_RETRY,
+                               NULL);
 
         g_error_free (error);
 
@@ -3809,12 +3747,12 @@ retry:
                                          error->message);
         }
 
-        response = run_error (job,
-                              primary,
-                              secondary,
-                              FALSE,
-                              RESPONSE_CANCEL, RESPONSE_RETRY,
-                              NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               FALSE,
+                               RESPONSE_CANCEL, RESPONSE_RETRY,
+                               NULL);
 
         g_error_free (error);
 
@@ -3860,11 +3798,11 @@ retry:
         primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
         secondary = g_strdup (_("The destination is not a folder."));
 
-        run_error (job,
-                   primary,
-                   secondary,
-                   RESPONSE_CANCEL,
-                   NULL);
+        run_dialog (job,
+                    primary,
+                    secondary,
+                    RESPONSE_CANCEL,
+                    NULL);
 
         abort_job (job);
         return;
@@ -3916,14 +3854,14 @@ retry:
                                            " is required."),
                                          formatted_size);
 
-            response = run_warning (job,
-                                    primary,
-                                    secondary,
-                                    FALSE,
-                                    RESPONSE_CANCEL,
-                                    RESPONSE_COPY_FORCE,
-                                    RESPONSE_RETRY,
-                                    NULL);
+            response = run_dialog (job,
+                                   primary,
+                                   secondary,
+                                   FALSE,
+                                   RESPONSE_CANCEL,
+                                   RESPONSE_COPY_FORCE,
+                                   RESPONSE_RETRY,
+                                   NULL);
 
             if (response == RESPONSE_CANCEL)
             {
@@ -3954,12 +3892,12 @@ retry:
         primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
         secondary = g_strdup (_("The destination is read-only."));
 
-        run_error (job,
-                   primary,
-                   secondary,
-                   FALSE,
-                   RESPONSE_CANCEL,
-                   NULL);
+        run_dialog (job,
+                    primary,
+                    secondary,
+                    FALSE,
+                    RESPONSE_CANCEL,
+                    NULL);
 
         g_error_free (error);
 
@@ -4817,12 +4755,12 @@ retry:
                                          error->message);
         }
 
-        response = run_warning (job,
-                                primary,
-                                secondary,
-                                FALSE,
-                                RESPONSE_CANCEL, RESPONSE_SKIP, RESPONSE_RETRY,
-                                NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               FALSE,
+                               RESPONSE_CANCEL, RESPONSE_SKIP, RESPONSE_RETRY,
+                               NULL);
 
         g_error_free (error);
 
@@ -5008,12 +4946,12 @@ retry:
                                              error->message);
             }
 
-            response = run_warning (job,
-                                    primary,
-                                    secondary,
-                                    FALSE,
-                                    RESPONSE_CANCEL, RESPONSE_SKIP_FILES,
-                                    NULL);
+            response = run_dialog (job,
+                                   primary,
+                                   secondary,
+                                   FALSE,
+                                   RESPONSE_CANCEL, RESPONSE_SKIP_FILES,
+                                   NULL);
 
             g_error_free (error);
 
@@ -5087,12 +5025,12 @@ retry:
                                          error->message);
         }
 
-        response = run_warning (job,
-                                primary,
-                                secondary,
-                                FALSE,
-                                RESPONSE_CANCEL, RESPONSE_SKIP, RESPONSE_RETRY,
-                                NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               FALSE,
+                               RESPONSE_CANCEL, RESPONSE_SKIP, RESPONSE_RETRY,
+                               NULL);
 
         g_error_free (error);
 
@@ -5343,12 +5281,12 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
         secondary = g_strdup_printf (_("While getting information about the source there was an error: “%s”"),
                                      error->message);
 
-        run_error (job,
-                   primary,
-                   secondary,
-                   FALSE,
-                   RESPONSE_CANCEL,
-                   NULL);
+        run_dialog (job,
+                    primary,
+                    secondary,
+                    FALSE,
+                    RESPONSE_CANCEL,
+                    NULL);
 
         abort_job (job);
     }
@@ -5439,7 +5377,7 @@ copy_move_file (CopyMoveJob   *copy_job,
             goto out;
         }
 
-        /*  the run_warning() frees all strings passed in automatically  */
+        /*  the run_dialog() frees all strings passed in automatically  */
         primary = copy_job->is_move ? g_strdup (_("You cannot move a folder into itself."))
                   : g_strdup (_("You cannot copy a folder into itself."));
         secondary = g_strdup (_("The destination folder is inside the source folder."));
@@ -5462,7 +5400,7 @@ copy_move_file (CopyMoveJob   *copy_job,
             goto out;
         }
 
-        /*  the run_warning() frees all strings passed in automatically  */
+        /*  the run_dialog() frees all strings passed in automatically  */
         primary = copy_job->is_move ? g_strdup (_("You cannot move a file over itself."))
                   : g_strdup (_("You cannot copy a file over itself."));
         secondary = g_strdup (_("The source file would be overwritten by the destination."));
@@ -5732,12 +5670,12 @@ retry:
                 /* setting TRUE on show_all here, as we could have
                  * another error on the same file later.
                  */
-                response = run_warning (job,
-                                        primary,
-                                        secondary,
-                                        TRUE,
-                                        RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
-                                        NULL);
+                response = run_dialog (job,
+                                       primary,
+                                       secondary,
+                                       TRUE,
+                                       RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
+                                       NULL);
 
                 g_error_free (error);
 
@@ -6202,7 +6140,7 @@ move_file_prepare (CopyMoveJob  *move_job,
             goto out;
         }
 
-        /*  the run_warning() frees all strings passed in automatically  */
+        /*  the run_dialog() frees all strings passed in automatically  */
         primary = move_job->is_move ? g_strdup (_("You cannot move a folder into itself."))
                   : g_strdup (_("You cannot copy a folder into itself."));
         secondary = g_strdup (_("The destination folder is inside the source folder."));
@@ -6227,17 +6165,17 @@ move_file_prepare (CopyMoveJob  *move_job,
             goto out;
         }
 
-        /*  the run_warning() frees all strings passed in automatically  */
+        /*  the run_dialog() frees all strings passed in automatically  */
         primary = move_job->is_move ? g_strdup (_("You cannot move a file over itself."))
                   : g_strdup (_("You cannot copy a file over itself."));
         secondary = g_strdup (_("The source file would be overwritten by the destination."));
 
-        response = run_warning (job,
-                                primary,
-                                secondary,
-                                files_left > 1,
-                                RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
-                                NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               files_left > 1,
+                               RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
+                               NULL);
 
         if (response == RESPONSE_CANCEL)
         {
@@ -6432,12 +6370,12 @@ retry:
                                      filename,
                                      error->message);
 
-        response = run_warning (job,
-                                primary,
-                                secondary,
-                                files_left > 1,
-                                RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
-                                NULL);
+        response = run_dialog (job,
+                               primary,
+                               secondary,
+                               files_left > 1,
+                               RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
+                               NULL);
 
         g_error_free (error);
 
@@ -6955,12 +6893,12 @@ retry:
                                          error->message);
         }
 
-        response = run_warning (common,
-                                primary,
-                                secondary,
-                                files_left > 1,
-                                RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
-                                NULL);
+        response = run_dialog (common,
+                               primary,
+                               secondary,
+                               files_left > 1,
+                               RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
+                               NULL);
 
         if (error)
         {
@@ -7887,12 +7825,12 @@ retry:
                                          parse_name,
                                          error->message);
 
-            response = run_warning (common,
-                                    primary,
-                                    secondary,
-                                    FALSE,
-                                    RESPONSE_CANCEL, RESPONSE_SKIP,
-                                    NULL);
+            response = run_dialog (common,
+                                   primary,
+                                   secondary,
+                                   FALSE,
+                                   RESPONSE_CANCEL, RESPONSE_SKIP,
+                                   NULL);
 
             g_error_free (error);
 
@@ -8651,12 +8589,12 @@ extract_job_on_scanned (AutoarExtractor *extractor,
         nautilus_progress_info_take_status (extract_job->common.progress,
                                             g_strdup_printf (_("Error extracting “%s”"),
                                                              basename));
-        run_error (&extract_job->common,
-                   g_strdup_printf (_("Not enough free space to extract %s"), basename),
-                   NULL,
-                   FALSE,
-                   RESPONSE_CANCEL,
-                   NULL);
+        run_dialog (&extract_job->common,
+                    g_strdup_printf (_("Not enough free space to extract %s"), basename),
+                    NULL,
+                    FALSE,
+                    RESPONSE_CANCEL,
+                    NULL);
 
         abort_job ((CommonJob *) extract_job);
     }
@@ -9081,12 +9019,12 @@ compress_job_on_error (AutoarCompressor *compressor,
     nautilus_progress_info_take_status (compress_job->common.progress,
                                         status);
 
-    run_error ((CommonJob *) compress_job,
-               g_strdup (_("There was an error while compressing files.")),
-               g_strdup (error->message),
-               FALSE,
-               RESPONSE_CANCEL,
-               NULL);
+    run_dialog ((CommonJob *) compress_job,
+                g_strdup (_("There was an error while compressing files.")),
+                g_strdup (error->message),
+                FALSE,
+                RESPONSE_CANCEL,
+                NULL);
 
     abort_job ((CommonJob *) compress_job);
 }
