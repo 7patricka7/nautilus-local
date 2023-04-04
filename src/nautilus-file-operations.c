@@ -355,124 +355,18 @@ get_response_label (DialogResponse response)
     }
 }
 
-static const char *
+static char *
 get_response_str (DialogResponse response)
 {
-    switch (response)
-    {
-        case RESPONSE_CANCEL:
-        {
-            return "cancel";
-        }
-
-        case RESPONSE_COPY_FORCE:
-        {
-            return "copy_anyway";
-        }
-
-        case RESPONSE_DELETE_ALL:
-        {
-            return "delete_all";
-        }
-
-        case RESPONSE_DELETE:
-        {
-            return "delete";
-        }
-
-        case RESPONSE_EMPTY_TRASH:
-        {
-            return "empty_trash";
-        }
-
-        case RESPONSE_MERGE:
-        {
-            return "merge";
-        }
-
-        case RESPONSE_REPLACE:
-        {
-            return "replace";
-        }
-
-        case RESPONSE_RETRY:
-        {
-            return "retry";
-        }
-
-        case RESPONSE_SKIP_ALL:
-        {
-            return "skip_all";
-        }
-
-        case RESPONSE_SKIP_FILES:
-        {
-            return "skip_files";
-        }
-
-        case RESPONSE_SKIP:
-        {
-            return "skip";
-        }
-
-        default:
-        {
-            return NULL;
-        }
-    }
+    char *str_from_enum = g_malloc (1);
+    str_from_enum[0] = 'A' + response;
+    return str_from_enum;
 }
 
 static DialogResponse
 to_response (const char *response_str)
 {
-    if (g_strcmp0 (response_str, "cancel") == 0)
-    {
-        return RESPONSE_CANCEL;
-    }
-    else if (g_strcmp0 (response_str, "copy_anyway") == 0)
-    {
-        return RESPONSE_COPY_FORCE;
-    }
-    else if (g_strcmp0 (response_str, "delete_all") == 0)
-    {
-        return RESPONSE_DELETE_ALL;
-    }
-    else if (g_strcmp0 (response_str, "delete") == 0)
-    {
-        return RESPONSE_DELETE;
-    }
-    else if (g_strcmp0 (response_str, "empty_trash") == 0)
-    {
-        return RESPONSE_EMPTY_TRASH;
-    }
-    else if (g_strcmp0 (response_str, "merge") == 0)
-    {
-        return RESPONSE_MERGE;
-    }
-    else if (g_strcmp0 (response_str, "replace") == 0)
-    {
-        return RESPONSE_REPLACE;
-    }
-    else if (g_strcmp0 (response_str, "retry") == 0)
-    {
-        return RESPONSE_RETRY;
-    }
-    else if (g_strcmp0 (response_str, "skip_all") == 0)
-    {
-        return RESPONSE_SKIP_ALL;
-    }
-    else if (g_strcmp0 (response_str, "skip_files") == 0)
-    {
-        return RESPONSE_SKIP_FILES;
-    }
-    else if (g_strcmp0 (response_str, "skip") == 0)
-    {
-        return RESPONSE_SKIP;
-    }
-    else
-    {
-        return RESPONSE_NONE;
-    }
+    return response_str[0] - 'A';
 }
 
 static gboolean
@@ -1551,6 +1445,8 @@ simple_dialog_cb (AdwMessageDialog    *dialog,
 static gboolean
 do_run_simple_dialog (gpointer _data)
 {
+    g_autofree char *default_response_str = get_response_str (RESPONSE_CANCEL);
+
     RunSimpleDialogData *data = _data;
     GtkWidget *dialog;
 
@@ -1567,6 +1463,7 @@ do_run_simple_dialog (gpointer _data)
          response_pos++)
     {
         DialogResponse response = data->response_options[response_pos];
+        g_autofree char *response_str = get_response_str (response);
 
         if (!data->show_all && is_all_response (response))
         {
@@ -1574,7 +1471,7 @@ do_run_simple_dialog (gpointer _data)
         }
 
         adw_message_dialog_add_response (ADW_MESSAGE_DIALOG (dialog),
-                                         get_response_str (response),
+                                         response_str,
                                          get_response_label (response));
 
         if (response == RESPONSE_DELETE ||
@@ -1582,12 +1479,12 @@ do_run_simple_dialog (gpointer _data)
             response == RESPONSE_DELETE_ALL)
         {
             adw_message_dialog_set_response_appearance (ADW_MESSAGE_DIALOG (dialog),
-                                                        get_response_str (response),
+                                                        response_str,
                                                         ADW_RESPONSE_DESTRUCTIVE);
         }
     }
     adw_message_dialog_set_default_response (ADW_MESSAGE_DIALOG (dialog),
-                                             get_response_str (RESPONSE_CANCEL));
+                                             default_response_str);
 
     if (data->should_start_inactive)
     {
