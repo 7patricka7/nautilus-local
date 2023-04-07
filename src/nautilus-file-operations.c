@@ -2395,7 +2395,6 @@ trash_file (CommonJob     *job,
     else if (response == RESPONSE_SKIP)
     {
         *skipped_file = TRUE;
-        job->skip_all_error = TRUE;
     }
     else if (response == RESPONSE_DELETE_ALL)
     {
