@@ -2313,10 +2313,10 @@ report_trash_progress (CommonJob    *job,
 }
 #pragma GCC diagnostic pop
 
-static void
+/** @return Whether file was skipped. */
+static gboolean
 trash_file (CommonJob     *job,
             GFile         *file,
-            gboolean      *skipped_file,
             SourceInfo    *source_info,
             TransferInfo  *transfer_info,
             gboolean       toplevel,
@@ -2329,8 +2329,7 @@ trash_file (CommonJob     *job,
 
     if (should_skip_file (job, file))
     {
-        *skipped_file = TRUE;
-        return;
+        return TRUE;
     }
 
     if (g_file_trash (file, job->cancellable, &error))
@@ -2344,19 +2343,18 @@ trash_file (CommonJob     *job,
         }
 
         report_trash_progress (job, source_info, transfer_info);
-        return;
+        return FALSE;
     }
 
     if (job->skip_all_error)
     {
-        *skipped_file = TRUE;
-        return;
+        return TRUE;
     }
 
     if (job->delete_all)
     {
         *to_delete = g_list_prepend (*to_delete, file);
-        return;
+        return FALSE;
     }
 
     basename = get_basename (file);
@@ -2387,12 +2385,12 @@ trash_file (CommonJob     *job,
     }
     else if (response == RESPONSE_SKIP_ALL)
     {
-        *skipped_file = TRUE;
         job->skip_all_error = TRUE;
+        return TRUE;
     }
     else if (response == RESPONSE_SKIP)
     {
-        *skipped_file = TRUE;
+        return TRUE;
     }
     else if (response == RESPONSE_DELETE_ALL)
     {
@@ -2403,6 +2401,8 @@ trash_file (CommonJob     *job,
     {
         *to_delete = g_list_prepend (*to_delete, file);
     }
+
+    return FALSE;
 }
 
 static void
@@ -2478,7 +2478,6 @@ trash_files (CommonJob *job,
     GList *to_delete;
     g_auto (SourceInfo) source_info = SOURCE_INFO_INIT;
     TransferInfo transfer_info;
-    gboolean skipped_file;
 
     if (job_aborted (job))
     {
@@ -2506,12 +2505,9 @@ trash_files (CommonJob *job,
     {
         file = l->data;
 
-        skipped_file = FALSE;
-        trash_file (job, file,
-                    &skipped_file,
-                    &source_info, &transfer_info,
-                    TRUE, &to_delete);
-        if (skipped_file)
+        if (!trash_file (job, file,
+                         &source_info, &transfer_info,
+                         TRUE, &to_delete))
         {
             (*files_skipped)++;
             source_info_remove_file_from_count (file, job, &source_info);
@@ -4611,18 +4607,17 @@ map_possibly_volatile_file_to_real_on_write (GFile              *volatile_file,
     return real_file;
 }
 
-static void copy_move_file (CopyMoveJob  *job,
-                            GFile        *src,
-                            GFile        *dest_dir,
-                            gboolean      same_fs,
-                            gboolean      unique_names,
-                            char        **dest_fs_type,
-                            SourceInfo   *source_info,
-                            TransferInfo *transfer_info,
-                            GHashTable   *debuting_files,
-                            gboolean      overwrite,
-                            gboolean     *skipped_file,
-                            gboolean      readonly_source_fs);
+static gboolean copy_move_file (CopyMoveJob  *job,
+                                GFile        *src,
+                                GFile        *dest_dir,
+                                gboolean      same_fs,
+                                gboolean      unique_names,
+                                char        **dest_fs_type,
+                                SourceInfo   *source_info,
+                                TransferInfo *transfer_info,
+                                GHashTable   *debuting_files,
+                                gboolean      overwrite,
+                                gboolean      readonly_source_fs);
 
 typedef enum
 {
@@ -4868,9 +4863,9 @@ copy_move_directory (CopyMoveJob   *copy_job,
             {
                 src_file = g_file_get_child (src,
                                              g_file_info_get_name (info));
-                copy_move_file (copy_job, src_file, *dest, same_fs, FALSE, &dest_fs_type,
-                                source_info, transfer_info, NULL, FALSE, &local_skipped_file,
-                                readonly_source_fs);
+                local_skipped_file = copy_move_file (copy_job, src_file, *dest, same_fs, FALSE,
+                                                     &dest_fs_type, source_info, transfer_info,
+                                                     NULL, FALSE, readonly_source_fs);
 
                 if (local_skipped_file)
                 {
@@ -5256,9 +5251,11 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
     return dest;
 }
 
-
-/* Debuting files is non-NULL only for toplevel items */
-static void
+/**
+ * @debuting_files: only non-NULL for toplevel items
+ * @return: Whether file was skipped.
+ */
+static gboolean
 copy_move_file (CopyMoveJob   *copy_job,
                 GFile         *src,
                 GFile         *dest_dir,
@@ -5269,7 +5266,6 @@ copy_move_file (CopyMoveJob   *copy_job,
                 TransferInfo  *transfer_info,
                 GHashTable    *debuting_files,
                 gboolean       overwrite,
-                gboolean      *skipped_file,
                 gboolean       readonly_source_fs)
 {
     g_autoptr (GFile) dest = NULL;
@@ -5285,12 +5281,9 @@ copy_move_file (CopyMoveJob   *copy_job,
 
     job = (CommonJob *) copy_job;
 
-    *skipped_file = FALSE;
-
     if (should_skip_file (job, src))
     {
-        *skipped_file = TRUE;
-        return;
+        return TRUE;
     }
 
     unique_name_nr = 1;
@@ -5315,8 +5308,7 @@ copy_move_file (CopyMoveJob   *copy_job,
         dest = get_target_file_from_source_display_name (copy_job, src, dest_dir);
         if (dest == NULL)
         {
-            *skipped_file = TRUE;
-            return;
+            return TRUE;
         }
     }
     else
@@ -5331,8 +5323,7 @@ copy_move_file (CopyMoveJob   *copy_job,
     {
         if (job->skip_all_error)
         {
-            *skipped_file = TRUE;
-            return;
+            return TRUE;
         }
 
         /*  the run_dialog() frees all strings passed in automatically  */
@@ -5346,8 +5337,7 @@ copy_move_file (CopyMoveJob   *copy_job,
                            source_info->num_files,
                            source_info->num_files - transfer_info->num_files);
 
-        *skipped_file = TRUE;
-        return;
+        return TRUE;
     }
 
     /* Don't allow copying over the source or one of the parents of the source.
@@ -5356,8 +5346,7 @@ copy_move_file (CopyMoveJob   *copy_job,
     {
         if (job->skip_all_error)
         {
-            *skipped_file = TRUE;
-            return;
+            return TRUE;
         }
 
         /*  the run_dialog() frees all strings passed in automatically  */
@@ -5371,8 +5360,7 @@ copy_move_file (CopyMoveJob   *copy_job,
                            source_info->num_files,
                            source_info->num_files - transfer_info->num_files);
 
-        *skipped_file = TRUE;
-        return;
+        return TRUE;
     }
 
     while (TRUE)
@@ -5455,7 +5443,7 @@ copy_move_file (CopyMoveJob   *copy_job,
                                                                     src, dest);
             }
 
-            return;
+            return FALSE;
         }
 
         /* On smb shares INVALID_ARGUMENT is typically returned instead of INVALID_FILENAME
@@ -5584,6 +5572,7 @@ copy_move_file (CopyMoveJob   *copy_job,
                  IS_IO_ERROR (error, WOULD_MERGE))
         {
             gboolean is_merge;
+            gboolean skipped_file = FALSE;
 
             is_merge = error->code == G_IO_ERROR_WOULD_MERGE;
             would_recurse = error->code == G_IO_ERROR_WOULD_RECURSE;
@@ -5663,7 +5652,7 @@ copy_move_file (CopyMoveJob   *copy_job,
             if (!copy_move_directory (copy_job, src, &dest, same_fs,
                                       would_recurse, dest_fs_type,
                                       source_info, transfer_info,
-                                      debuting_files, skipped_file,
+                                      debuting_files, &skipped_file,
                                       readonly_source_fs))
             {
                 /* destination changed, since it was an invalid file name */
@@ -5672,7 +5661,7 @@ copy_move_file (CopyMoveJob   *copy_job,
                 continue;
             }
 
-            return;
+            return skipped_file;
         }
         else if (IS_IO_ERROR (error, CANCELLED))
         {
@@ -5707,7 +5696,8 @@ copy_move_file (CopyMoveJob   *copy_job,
         break;
     }
 
-    *skipped_file = TRUE;     /* Or aborted, but same-same */
+    /* Either skipped or aborted, but same-same */
+    return TRUE;
 }
 
 static void
@@ -5721,9 +5711,7 @@ copy_files (CopyMoveJob  *job,
     GFile *src;
     gboolean same_fs;
     int i;
-    gboolean skipped_file;
     gboolean unique_names;
-    GFile *dest;
     GFile *source_dir;
     char *dest_fs_type;
     GFileInfo *inf;
@@ -5755,6 +5743,8 @@ copy_files (CopyMoveJob  *job,
          l != NULL && !job_aborted (common);
          l = l->next)
     {
+        g_autoptr (GFile) dest = NULL;
+
         src = l->data;
 
         same_fs = FALSE;
@@ -5773,17 +5763,13 @@ copy_files (CopyMoveJob  *job,
         }
         if (dest)
         {
-            skipped_file = FALSE;
-            copy_move_file (job, src, dest,
-                            same_fs, unique_names,
-                            &dest_fs_type,
-                            source_info, transfer_info,
-                            job->debuting_files,
-                            FALSE, &skipped_file,
-                            readonly_source_fs);
-            g_object_unref (dest);
-
-            if (skipped_file)
+            gboolean skipped = copy_move_file (job, src, dest,
+                                               same_fs, unique_names,
+                                               &dest_fs_type,
+                                               source_info, transfer_info,
+                                               job->debuting_files,
+                                               FALSE, readonly_source_fs);
+            if (skipped)
             {
                 source_info_remove_file_from_count (src, common, source_info);
                 report_copy_progress (job, source_info, transfer_info);
@@ -6384,18 +6370,16 @@ move_files (CopyMoveJob   *job,
     GList *l;
     GFile *src;
     gboolean same_fs;
-    int i;
-    gboolean skipped_file;
     MoveFileCopyFallback *fallback;
     common = &job->common;
 
     report_copy_progress (job, source_info, transfer_info);
 
-    i = 0;
     for (l = fallbacks;
          l != NULL && !job_aborted (common);
          l = l->next)
     {
+        gboolean skipped_file;
         fallback = l->data;
         src = fallback->file;
 
@@ -6405,13 +6389,11 @@ move_files (CopyMoveJob   *job,
             same_fs = has_fs_id (src, dest_fs_id);
         }
 
-        skipped_file = FALSE;
-        copy_move_file (job, src, job->destination,
-                        same_fs, FALSE, dest_fs_type,
-                        source_info, transfer_info,
-                        job->debuting_files,
-                        fallback->overwrite, &skipped_file, FALSE);
-        i++;
+        skipped_file = copy_move_file (job, src, job->destination,
+                                       same_fs, FALSE, dest_fs_type,
+                                       source_info, transfer_info,
+                                       job->debuting_files,
+                                       fallback->overwrite, FALSE);
 
         if (skipped_file)
         {
