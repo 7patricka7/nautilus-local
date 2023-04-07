@@ -2322,7 +2322,7 @@ trash_file (CommonJob     *job,
             gboolean       toplevel,
             GList        **to_delete)
 {
-    GError *error;
+    g_autoptr (GError) error = NULL;
     char *primary, *secondary;
     DialogResponse response;
     g_autofree gchar *basename = NULL;
@@ -2332,8 +2332,6 @@ trash_file (CommonJob     *job,
         *skipped_file = TRUE;
         return;
     }
-
-    error = NULL;
 
     if (g_file_trash (file, job->cancellable, &error))
     {
@@ -2352,13 +2350,13 @@ trash_file (CommonJob     *job,
     if (job->skip_all_error)
     {
         *skipped_file = TRUE;
-        goto skip;
+        return;
     }
 
     if (job->delete_all)
     {
         *to_delete = g_list_prepend (*to_delete, file);
-        goto skip;
+        return;
     }
 
     basename = get_basename (file);
@@ -2405,9 +2403,6 @@ trash_file (CommonJob     *job,
     {
         *to_delete = g_list_prepend (*to_delete, file);
     }
-
-skip:
-    g_error_free (error);
 }
 
 static void
@@ -2803,11 +2798,10 @@ unmount_mount_callback (GObject      *source_object,
                         gpointer      user_data)
 {
     UnmountData *data = user_data;
-    GError *error;
+    g_autoptr (GError) error = NULL;
     char *primary;
     gboolean unmounted;
 
-    error = NULL;
     if (data->eject)
     {
         unmounted = g_mount_eject_with_operation_finish (G_MOUNT (source_object),
@@ -2847,11 +2841,6 @@ unmount_mount_callback (GObject      *source_object,
     if (data->callback)
     {
         data->callback (data->callback_data);
-    }
-
-    if (error != NULL)
-    {
-        g_error_free (error);
     }
 
     unmount_data_free (data);
@@ -3134,13 +3123,12 @@ volume_mount_cb (GObject      *source_object,
     NautilusMountCallback mount_callback;
     GObject *mount_callback_data_object;
     GMountOperation *mount_op = user_data;
-    GError *error;
+    g_autoptr (GError) error = NULL;
     char *primary;
     char *name;
     gboolean success;
 
     success = TRUE;
-    error = NULL;
     if (!g_volume_mount_finish (G_VOLUME (source_object), res, &error))
     {
         if (error->code != G_IO_ERROR_FAILED_HANDLED &&
@@ -3159,7 +3147,6 @@ volume_mount_cb (GObject      *source_object,
                          GTK_MESSAGE_ERROR);
             g_free (primary);
         }
-        g_error_free (error);
     }
 
     mount_callback = (NautilusMountCallback)
@@ -3355,7 +3342,6 @@ scan_dir (GFile      *dir,
           GQueue     *dirs)
 {
     GFileInfo *info;
-    GError *error;
     GFile *subdir;
     GFileEnumerator *enumerator;
     char *primary, *secondary;
@@ -3381,11 +3367,13 @@ scan_dir (GFile      *dir,
                              dir_info);
     }
 
-    /* Stash a copy of the struct to restore state before goto retry. Note that
+    /* Stash a copy of the struct to restore state when retrying. Note that
      * this assumes the code below does not access any pointer member */
     saved_info = *source_info;
 
-retry:
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
 
         if (dir_info != NULL)
         {
@@ -3393,7 +3381,6 @@ retry:
             dir_info->num_bytes_children = 0;
         }
 
-        error = NULL;
         enumerator = g_file_enumerate_children (dir,
                                                 G_FILE_ATTRIBUTE_STANDARD_NAME ","
                                                 G_FILE_ATTRIBUTE_STANDARD_TYPE ","
@@ -3403,7 +3390,6 @@ retry:
                                                 &error);
         if (enumerator)
         {
-            error = NULL;
             while ((info = g_file_enumerator_next_file (enumerator, job->cancellable, &error)) != NULL)
             {
                 count_file (info, job, source_info, dir_info);
@@ -3421,11 +3407,7 @@ retry:
             g_file_enumerator_close (enumerator, job->cancellable, NULL);
             g_object_unref (enumerator);
 
-            if (error && IS_IO_ERROR (error, CANCELLED))
-            {
-                g_error_free (error);
-            }
-            else if (error)
+            if (error && !IS_IO_ERROR (error, CANCELLED))
             {
                 g_autofree gchar *basename = NULL;
 
@@ -3453,8 +3435,6 @@ retry:
                                        RESPONSE_CANCEL, RESPONSE_RETRY, RESPONSE_SKIP,
                                        NULL);
 
-                g_error_free (error);
-
                 if (response == RESPONSE_CANCEL)
                 {
                     abort_job (job);
@@ -3464,7 +3444,7 @@ retry:
                 {
                     g_clear_list (&subdirs, g_object_unref);
                     *source_info = saved_info;
-                    goto retry;
+                    continue;
                 }
                 else if (response == RESPONSE_SKIP)
                 {
@@ -3478,15 +3458,10 @@ retry:
         }
         else if (job->skip_all_error)
         {
-            g_error_free (error);
             skip_file (job, dir);
             skip_subdirs = TRUE;
         }
-        else if (IS_IO_ERROR (error, CANCELLED))
-        {
-            g_error_free (error);
-        }
-        else
+        else if (!IS_IO_ERROR (error, CANCELLED))
         {
             g_autofree gchar *basename = NULL;
 
@@ -3514,8 +3489,6 @@ retry:
                                    RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_RETRY,
                                    NULL);
 
-            g_error_free (error);
-
             if (response == RESPONSE_CANCEL)
             {
                 abort_job (job);
@@ -3532,13 +3505,16 @@ retry:
             }
             else if (response == RESPONSE_RETRY)
             {
-                goto retry;
+                continue;
             }
             else
             {
                 g_assert_not_reached ();
             }
         }
+
+        break;
+    }
 
     if (!skip_subdirs)
     {
@@ -3559,7 +3535,6 @@ scan_file (GFile      *file,
            CommonJob  *job)
 {
     GFileInfo *info;
-    GError *error;
     GQueue *dirs;
     GFile *dir;
     char *primary;
@@ -3568,8 +3543,10 @@ scan_file (GFile      *file,
 
     dirs = g_queue_new ();
 
-retry:
-        error = NULL;
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
+
         info = g_file_query_info (file,
                                   G_FILE_ATTRIBUTE_STANDARD_TYPE ","
                                   G_FILE_ATTRIBUTE_STANDARD_SIZE,
@@ -3591,14 +3568,9 @@ retry:
         }
         else if (job->skip_all_error)
         {
-            g_error_free (error);
             skip_file (job, file);
         }
-        else if (IS_IO_ERROR (error, CANCELLED))
-        {
-            g_error_free (error);
-        }
-        else
+        else if (!IS_IO_ERROR (error, CANCELLED))
         {
             g_autofree gchar *basename = NULL;
 
@@ -3626,8 +3598,6 @@ retry:
                                    RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP, RESPONSE_RETRY,
                                    NULL);
 
-            g_error_free (error);
-
             if (response == RESPONSE_CANCEL)
             {
                 abort_job (job);
@@ -3642,13 +3612,16 @@ retry:
             }
             else if (response == RESPONSE_RETRY)
             {
-                goto retry;
+                continue;
             }
             else
             {
                 g_assert_not_reached ();
             }
         }
+
+        break;
+    }
 
     while (!job_aborted (job) &&
            (dir = g_queue_pop_head (dirs)) != NULL)
@@ -3699,7 +3672,6 @@ verify_destination (CommonJob  *job,
                     goffset     required_size)
 {
     GFileInfo *info, *fsinfo;
-    GError *error;
     const char *fs_type;
     guint64 free_size;
     guint64 size_difference;
@@ -3713,9 +3685,10 @@ verify_destination (CommonJob  *job,
         *dest_fs_id = NULL;
     }
 
-retry:
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
 
-        error = NULL;
         info = g_file_query_info (dest,
                                   G_FILE_ATTRIBUTE_STANDARD_TYPE ","
                                   G_FILE_ATTRIBUTE_ID_FILESYSTEM,
@@ -3729,7 +3702,6 @@ retry:
 
             if (IS_IO_ERROR (error, CANCELLED))
             {
-                g_error_free (error);
                 return;
             }
 
@@ -3753,15 +3725,13 @@ retry:
                                    RESPONSE_CANCEL, RESPONSE_RETRY,
                                    NULL);
 
-            g_error_free (error);
-
             if (response == RESPONSE_CANCEL)
             {
                 abort_job (job);
             }
             else if (response == RESPONSE_RETRY)
             {
-                goto retry;
+                continue;
             }
             else
             {
@@ -3777,7 +3747,7 @@ retry:
             /* Record that destination is a symlink and do real stat() once again */
             dest_is_symlink = TRUE;
             g_object_unref (info);
-            goto retry;
+            continue;
         }
 
         if (dest_fs_id)
@@ -3868,7 +3838,7 @@ retry:
                 }
                 else if (response == RESPONSE_RETRY)
                 {
-                    goto retry;
+                    continue;
                 }
                 else if (response == RESPONSE_COPY_FORCE)
                 {
@@ -3880,6 +3850,9 @@ retry:
                 }
             }
         }
+
+        break;
+    }
 
     if (!job_aborted (job) &&
         g_file_info_get_attribute_boolean (fsinfo,
@@ -3897,8 +3870,6 @@ retry:
                     FALSE,
                     RESPONSE_CANCEL,
                     NULL);
-
-        g_error_free (error);
 
         abort_job (job);
     }
@@ -4667,7 +4638,6 @@ create_dest_dir (CommonJob  *job,
                  gboolean    same_fs,
                  char      **dest_fs_type)
 {
-    GError *error;
     GFile *new_dest, *dest_dir;
     char *primary, *secondary;
     DialogResponse response;
@@ -4676,11 +4646,13 @@ create_dest_dir (CommonJob  *job,
 
     handled_invalid_filename = *dest_fs_type != NULL;
 
-retry:
-        /* First create the directory, then copy stuff to it before
-         * copying the attributes, because we need to be sure we can write to it */
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
 
-        error = NULL;
+        /* First create the directory, then copy stuff to it before
+         *  copying the attributes, because we need to be sure we can write to it */
+
         res = g_file_make_directory (*dest, job->cancellable, &error);
 
         if (res)
@@ -4705,7 +4677,6 @@ retry:
 
             if (IS_IO_ERROR (error, CANCELLED))
             {
-                g_error_free (error);
                 return CREATE_DEST_DIR_FAILED;
             }
             else if (IS_IO_ERROR (error, INVALID_FILENAME) &&
@@ -4728,7 +4699,6 @@ retry:
                     {
                         g_object_unref (*dest);
                         *dest = new_dest;
-                        g_error_free (error);
                         return CREATE_DEST_DIR_RETRY;
                     }
                     else
@@ -4761,8 +4731,6 @@ retry:
                                    RESPONSE_CANCEL, RESPONSE_SKIP, RESPONSE_RETRY,
                                    NULL);
 
-            g_error_free (error);
-
             if (response == RESPONSE_CANCEL)
             {
                 abort_job (job);
@@ -4773,7 +4741,7 @@ retry:
             }
             else if (response == RESPONSE_RETRY)
             {
-                goto retry;
+                continue;
             }
             else
             {
@@ -4781,6 +4749,9 @@ retry:
             }
             return CREATE_DEST_DIR_FAILED;
         }
+
+        break;
+    }
     nautilus_file_changes_queue_file_added (*dest);
 
     if (job->undo_info != NULL)
@@ -4813,11 +4784,9 @@ copy_move_directory (CopyMoveJob   *copy_job,
 {
     g_autoptr (GFileInfo) src_info = NULL;
     GFileInfo *info;
-    GError *error;
     GFile *src_file;
     GFileEnumerator *enumerator;
     char *primary, *secondary;
-    char *dest_fs_type;
     DialogResponse response;
     gboolean skip_error;
     gboolean local_skipped_file;
@@ -4879,11 +4848,14 @@ copy_move_directory (CopyMoveJob   *copy_job,
     }
 
     local_skipped_file = FALSE;
-    dest_fs_type = NULL;
 
     skip_error = should_skip_readdir_error (job, src);
-retry:
-        error = NULL;
+
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
+        g_autofree char *dest_fs_type = NULL;
+
         enumerator = g_file_enumerate_children (src,
                                                 G_FILE_ATTRIBUTE_STANDARD_NAME,
                                                 G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
@@ -4891,8 +4863,6 @@ retry:
                                                 &error);
         if (enumerator)
         {
-            error = NULL;
-
             while (!job_aborted (job) &&
                    (info = g_file_enumerator_next_file (enumerator, job->cancellable, skip_error ? NULL : &error)) != NULL)
             {
@@ -4914,11 +4884,7 @@ retry:
             g_file_enumerator_close (enumerator, job->cancellable, NULL);
             g_object_unref (enumerator);
 
-            if (error && IS_IO_ERROR (error, CANCELLED))
-            {
-                g_error_free (error);
-            }
-            else if (error)
+            if (error && !IS_IO_ERROR (error, CANCELLED))
             {
                 g_autofree gchar *basename = NULL;
 
@@ -4951,8 +4917,6 @@ retry:
                                        FALSE,
                                        RESPONSE_CANCEL, RESPONSE_SKIP_FILES,
                                        NULL);
-
-                g_error_free (error);
 
                 if (response == RESPONSE_CANCEL)
                 {
@@ -4994,11 +4958,7 @@ retry:
                 g_hash_table_replace (debuting_files, g_object_ref (*dest), GINT_TO_POINTER (create_dest));
             }
         }
-        else if (IS_IO_ERROR (error, CANCELLED))
-        {
-            g_error_free (error);
-        }
-        else
+        else if (!IS_IO_ERROR (error, CANCELLED))
         {
             g_autofree gchar *basename = NULL;
 
@@ -5031,8 +4991,6 @@ retry:
                                    RESPONSE_CANCEL, RESPONSE_SKIP, RESPONSE_RETRY,
                                    NULL);
 
-            g_error_free (error);
-
             if (response == RESPONSE_CANCEL)
             {
                 abort_job (job);
@@ -5044,13 +5002,16 @@ retry:
             }
             else if (response == RESPONSE_RETRY)
             {
-                goto retry;
+                continue;
             }
             else
             {
                 g_assert_not_reached ();
             }
         }
+
+        break;
+    }
 
     if (src_info != NULL)
     {
@@ -5067,6 +5028,8 @@ retry:
         !*skipped_file &&
         !local_skipped_file)
     {
+        g_autoptr (GError) error = NULL;
+
         if (!g_file_delete (src, job->cancellable, &error))
         {
             g_autofree gchar *basename = NULL;
@@ -5075,7 +5038,7 @@ retry:
             if (job->skip_all_error)
             {
                 *skipped_file = TRUE;
-                goto skip;
+                return TRUE;
             }
             basename = get_basename (src);
             primary = g_strdup_printf (_("Error while moving “%s”."), basename);
@@ -5088,13 +5051,9 @@ retry:
                                       source_info->num_files,
                                       source_info->num_files - transfer_info->num_files);
             *skipped_file |= skip;
-
-skip:
-            g_error_free (error);
         }
     }
 
-    g_free (dest_fs_type);
     return TRUE;
 }
 
@@ -5313,9 +5272,8 @@ copy_move_file (CopyMoveJob   *copy_job,
                 gboolean      *skipped_file,
                 gboolean       readonly_source_fs)
 {
-    GFile *dest, *new_dest;
+    g_autoptr (GFile) dest = NULL;
     g_autofree gchar *dest_uri = NULL;
-    GError *error;
     GFileCopyFlags flags;
     char *primary, *secondary;
     ProgressData pdata;
@@ -5373,7 +5331,8 @@ copy_move_file (CopyMoveJob   *copy_job,
     {
         if (job->skip_all_error)
         {
-            goto out;
+            *skipped_file = TRUE;
+            return;
         }
 
         /*  the run_dialog() frees all strings passed in automatically  */
@@ -5387,7 +5346,8 @@ copy_move_file (CopyMoveJob   *copy_job,
                            source_info->num_files,
                            source_info->num_files - transfer_info->num_files);
 
-        goto out;
+        *skipped_file = TRUE;
+        return;
     }
 
     /* Don't allow copying over the source or one of the parents of the source.
@@ -5396,7 +5356,8 @@ copy_move_file (CopyMoveJob   *copy_job,
     {
         if (job->skip_all_error)
         {
-            goto out;
+            *skipped_file = TRUE;
+            return;
         }
 
         /*  the run_dialog() frees all strings passed in automatically  */
@@ -5410,13 +5371,14 @@ copy_move_file (CopyMoveJob   *copy_job,
                            source_info->num_files,
                            source_info->num_files - transfer_info->num_files);
 
-        goto out;
+        *skipped_file = TRUE;
+        return;
     }
 
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
 
-retry:
-
-        error = NULL;
         flags = G_FILE_COPY_NOFOLLOW_SYMLINKS;
         if (overwrite)
         {
@@ -5493,7 +5455,6 @@ retry:
                                                                     src, dest);
             }
 
-            g_object_unref (dest);
             return;
         }
 
@@ -5505,6 +5466,7 @@ retry:
              IS_IO_ERROR (error, INVALID_ARGUMENT) ||
              IS_IO_ERROR (error, NOT_DIRECTORY)))
         {
+            g_autoptr (GFile) new_dest = NULL;
             handled_invalid_filename = TRUE;
 
             g_assert (*dest_fs_type == NULL);
@@ -5522,14 +5484,9 @@ retry:
             if (!g_file_equal (dest, new_dest))
             {
                 g_object_unref (dest);
-                dest = new_dest;
+                dest = g_steal_pointer (&new_dest);
 
-                g_error_free (error);
-                goto retry;
-            }
-            else
-            {
-                g_object_unref (new_dest);
+                continue;
             }
         }
 
@@ -5545,13 +5502,11 @@ retry:
             source_is_directory = is_dir (src, job->cancellable);
             destination_is_directory = is_dir (dest, job->cancellable);
 
-            g_error_free (error);
-
             if (unique_names)
             {
                 g_object_unref (dest);
                 dest = get_unique_target_file (src, dest_dir, job->cancellable, same_fs, *dest_fs_type, unique_name_nr++);
-                goto retry;
+                continue;
             }
 
             is_merge = FALSE;
@@ -5564,19 +5519,19 @@ retry:
             {
                 /* Any sane backend will fail with G_IO_ERROR_IS_DIRECTORY. */
                 overwrite = TRUE;
-                goto retry;
+                continue;
             }
 
             if ((is_merge && job->merge_all) ||
                 (!is_merge && job->replace_all))
             {
                 overwrite = TRUE;
-                goto retry;
+                continue;
             }
 
             if (job->skip_all_conflict)
             {
-                goto out;
+                break;
             }
 
             response = handle_copy_move_conflict (job, src, dest, dest_dir);
@@ -5609,7 +5564,7 @@ retry:
                 }
                 overwrite = TRUE;
                 file_conflict_response_free (response);
-                goto retry;
+                continue;
             }
             else if (response->id == CONFLICT_RESPONSE_RENAME)
             {
@@ -5617,7 +5572,7 @@ retry:
                 dest = get_target_file_for_display_name (dest_dir,
                                                          response->new_name);
                 file_conflict_response_free (response);
-                goto retry;
+                continue;
             }
             else
             {
@@ -5632,11 +5587,10 @@ retry:
 
             is_merge = error->code == G_IO_ERROR_WOULD_MERGE;
             would_recurse = error->code == G_IO_ERROR_WOULD_RECURSE;
-            g_error_free (error);
 
             if (overwrite && would_recurse)
             {
-                error = NULL;
+                g_clear_error (&error);
 
                 /* Copying a dir onto file, first remove the file */
                 if (!g_file_delete (dest, job->cancellable, &error) &&
@@ -5648,8 +5602,7 @@ retry:
 
                     if (job->skip_all_error)
                     {
-                        g_error_free (error);
-                        goto out;
+                        break;
                     }
 
                     basename = get_basename (src);
@@ -5676,8 +5629,6 @@ retry:
                                            RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
                                            NULL);
 
-                    g_error_free (error);
-
                     if (response == RESPONSE_CANCEL)
                     {
                         abort_job (job);
@@ -5694,12 +5645,7 @@ retry:
                     {
                         g_assert_not_reached ();
                     }
-                    goto out;
-                }
-                if (error)
-                {
-                    g_error_free (error);
-                    error = NULL;
+                    break;
                 }
                 nautilus_file_changes_queue_file_removed (dest);
             }
@@ -5723,10 +5669,9 @@ retry:
                 /* destination changed, since it was an invalid file name */
                 g_assert (*dest_fs_type != NULL);
                 handled_invalid_filename = TRUE;
-                goto retry;
+                continue;
             }
 
-            g_object_unref (dest);
             return;
         }
         else if (IS_IO_ERROR (error, CANCELLED))
@@ -5735,7 +5680,6 @@ retry:
             {
                 g_file_delete (dest, NULL, NULL);
             }
-            g_error_free (error);
         }
         /* Other error */
         else
@@ -5745,8 +5689,7 @@ retry:
 
             if (job->skip_all_error)
             {
-                g_error_free (error);
-                goto out;
+                continue;
             }
             basename = get_basename (src);
             primary = g_strdup_printf (_("Error while copying “%s”."), basename);
@@ -5759,12 +5702,12 @@ retry:
                                secondary,
                                source_info->num_files,
                                source_info->num_files - transfer_info->num_files);
-
-            g_error_free (error);
         }
-out:
+
+        break;
+    }
+
     *skipped_file = TRUE;     /* Or aborted, but same-same */
-    g_object_unref (dest);
 }
 
 static void
@@ -6060,6 +6003,7 @@ typedef struct
     GFile *file;
     gboolean overwrite;
 } MoveFileCopyFallback;
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (MoveFileCopyFallback, g_free)
 
 static MoveFileCopyFallback *
 move_copy_file_callback_new (GFile    *file,
@@ -6099,9 +6043,8 @@ move_file_prepare (CopyMoveJob  *move_job,
                    GList       **fallback_files,
                    int           files_left)
 {
-    GFile *dest, *new_dest;
+    g_autoptr (GFile) dest;
     g_autofree gchar *dest_uri = NULL;
-    GError *error;
     CommonJob *job;
     gboolean overwrite;
     char *primary, *secondary;
@@ -6136,7 +6079,7 @@ move_file_prepare (CopyMoveJob  *move_job,
     {
         if (job->skip_all_error)
         {
-            goto out;
+            return;
         }
 
         /*  the run_dialog() frees all strings passed in automatically  */
@@ -6150,7 +6093,7 @@ move_file_prepare (CopyMoveJob  *move_job,
                            files_left,
                            files_left);
 
-        goto out;
+        return;
     }
 
     /* Don't allow moving over the source or one of the parents of the source.
@@ -6161,7 +6104,7 @@ move_file_prepare (CopyMoveJob  *move_job,
 
         if (job->skip_all_error)
         {
-            goto out;
+            return;
         }
 
         /*  the run_dialog() frees all strings passed in automatically  */
@@ -6193,11 +6136,12 @@ move_file_prepare (CopyMoveJob  *move_job,
             g_assert_not_reached ();
         }
 
-        goto out;
+        return;
     }
 
-
-retry:
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
 
         flags = G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_NO_FALLBACK_FOR_MOVE;
         if (overwrite)
@@ -6205,7 +6149,6 @@ retry:
             flags |= G_FILE_COPY_OVERWRITE;
         }
 
-        error = NULL;
         if (g_file_move (src, dest,
                          flags,
                          job->cancellable,
@@ -6234,8 +6177,7 @@ retry:
         if (IS_IO_ERROR (error, INVALID_FILENAME) &&
             !handled_invalid_filename)
         {
-            g_error_free (error);
-
+            g_autoptr (GFile) new_dest = NULL;
             handled_invalid_filename = TRUE;
 
             g_assert (*dest_fs_type == NULL);
@@ -6245,12 +6187,8 @@ retry:
             if (!g_file_equal (dest, new_dest))
             {
                 g_object_unref (dest);
-                dest = new_dest;
-                goto retry;
-            }
-            else
-            {
-                g_object_unref (new_dest);
+                dest = g_steal_pointer (&new_dest);
+                continue;
             }
         }
         /* Conflict */
@@ -6265,8 +6203,6 @@ retry:
             source_is_directory = is_dir (src, job->cancellable);
             destination_is_directory = is_dir (dest, job->cancellable);
 
-            g_error_free (error);
-
             is_merge = FALSE;
             if (source_is_directory && destination_is_directory)
             {
@@ -6276,19 +6212,19 @@ retry:
             {
                 /* Any sane backend will fail with G_IO_ERROR_IS_DIRECTORY. */
                 overwrite = TRUE;
-                goto retry;
+                continue;
             }
 
             if ((is_merge && job->merge_all) ||
                 (!is_merge && job->replace_all))
             {
                 overwrite = TRUE;
-                goto retry;
+                continue;
             }
 
             if (job->skip_all_conflict)
             {
-                goto out;
+                return;
             }
 
             response = handle_copy_move_conflict (job, src, dest, dest_dir);
@@ -6321,7 +6257,7 @@ retry:
                 }
                 overwrite = TRUE;
                 file_conflict_response_free (response);
-                goto retry;
+                continue;
             }
             else if (response->id == CONFLICT_RESPONSE_RENAME)
             {
@@ -6329,7 +6265,7 @@ retry:
                 dest = get_target_file_for_display_name (dest_dir,
                                                          response->new_name);
                 file_conflict_response_free (response);
-                goto retry;
+                continue;
             }
             else
             {
@@ -6340,27 +6276,21 @@ retry:
                  IS_IO_ERROR (error, WOULD_MERGE) ||
                  IS_IO_ERROR (error, NOT_SUPPORTED))
         {
-            g_error_free (error);
-
             fallback = move_copy_file_callback_new (src,
                                                     overwrite);
             *fallback_files = g_list_prepend (*fallback_files, fallback);
         }
-        else if (IS_IO_ERROR (error, CANCELLED))
+        else if (!IS_IO_ERROR (error, CANCELLED))
         {
-            g_error_free (error);
-        }
-        /* Other error */
-        else
-        {
+            /* Other error */
+
             g_autofree gchar *basename = NULL;
             g_autofree gchar *filename = NULL;
             DialogResponse response;
 
             if (job->skip_all_error)
             {
-                g_error_free (error);
-                goto out;
+                return;
             }
             basename = get_basename (src);
             primary = g_strdup_printf (_("Error while moving “%s”."), basename);
@@ -6375,8 +6305,6 @@ retry:
                                    files_left > 1,
                                    RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
                                    NULL);
-
-            g_error_free (error);
 
             if (response == RESPONSE_CANCEL)
             {
@@ -6396,8 +6324,8 @@ retry:
             }
         }
 
-out:
-    g_object_unref (dest);
+        break;
+    }
 }
 
 static void
@@ -6593,7 +6521,7 @@ nautilus_file_operations_move (GTask        *task,
 {
     CopyMoveJob *job;
     CommonJob *common;
-    GList *fallbacks;
+    g_autolist (MoveFileCopyFallback) fallbacks = NULL;
     g_auto (SourceInfo) source_info = SOURCE_INFO_INIT;
     TransferInfo transfer_info;
     g_autofree char *dest_fs_id = NULL;
@@ -6637,22 +6565,20 @@ nautilus_file_operations_move (GTask        *task,
 
     nautilus_progress_info_start (job->common.progress);
 
-    fallbacks = NULL;
-
     verify_destination (&job->common,
                         job->destination,
                         &dest_fs_id,
                         -1);
     if (job_aborted (common))
     {
-        goto aborted;
+        return;
     }
 
     /* This moves all files that we can do without copy + delete */
     move_files_prepare (job, dest_fs_id, &dest_fs_type, &fallbacks);
     if (job_aborted (common))
     {
-        goto aborted;
+        return;
     }
 
     if (fallbacks == NULL)
@@ -6683,7 +6609,7 @@ nautilus_file_operations_move (GTask        *task,
 
     if (job_aborted (common))
     {
-        goto aborted;
+        return;
     }
 
     verify_destination (&job->common,
@@ -6692,7 +6618,7 @@ nautilus_file_operations_move (GTask        *task,
                         source_info.num_bytes);
     if (job_aborted (common))
     {
-        goto aborted;
+        return;
     }
 
     memset (&transfer_info, 0, sizeof (transfer_info));
@@ -6700,9 +6626,6 @@ nautilus_file_operations_move (GTask        *task,
                 fallbacks,
                 dest_fs_id, &dest_fs_type,
                 &source_info, &transfer_info);
-
-aborted:
-    g_list_free_full (fallbacks, g_free);
 }
 
 static void
@@ -6764,13 +6687,11 @@ link_file (CopyMoveJob  *job,
            int           files_left)
 {
     GFile *src_dir;
-    GFile *new_dest;
     g_autoptr (GFile) dest = NULL;
     g_autofree gchar *dest_uri = NULL;
     int count;
     char *path;
     gboolean not_local;
-    GError *error;
     CommonJob *common;
     char *primary, *secondary;
     DialogResponse response;
@@ -6791,8 +6712,10 @@ link_file (CopyMoveJob  *job,
 
     dest = get_target_file_for_link (src, dest_dir, *dest_fs_type, count);
 
-retry:
-        error = NULL;
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
+
         not_local = FALSE;
 
         path = get_abs_path_for_symlink (src, dest);
@@ -6828,6 +6751,7 @@ retry:
             IS_IO_ERROR (error, INVALID_FILENAME) &&
             !handled_invalid_filename)
         {
+            g_autoptr (GFile) new_dest = NULL;
             handled_invalid_filename = TRUE;
 
             g_assert (*dest_fs_type == NULL);
@@ -6838,14 +6762,8 @@ retry:
             if (!g_file_equal (dest, new_dest))
             {
                 g_object_unref (dest);
-                dest = new_dest;
-                g_error_free (error);
-
-                goto retry;
-            }
-            else
-            {
-                g_object_unref (new_dest);
+                dest = g_steal_pointer (&new_dest);
+                continue;
             }
         }
         /* Conflict */
@@ -6853,16 +6771,12 @@ retry:
         {
             g_object_unref (dest);
             dest = get_target_file_for_link (src, dest_dir, *dest_fs_type, count++);
-            g_error_free (error);
-            goto retry;
+            continue;
         }
-        else if (error != NULL && IS_IO_ERROR (error, CANCELLED))
+        else if (error != NULL && !IS_IO_ERROR (error, CANCELLED))
         {
-            g_error_free (error);
-        }
-        /* Other error */
-        else if (error != NULL)
-        {
+            /* Other error */
+
             g_autofree gchar *basename = NULL;
 
             if (common->skip_all_error)
@@ -6897,11 +6811,6 @@ retry:
                                    RESPONSE_CANCEL, RESPONSE_SKIP_ALL, RESPONSE_SKIP,
                                    NULL);
 
-            if (error)
-            {
-                g_error_free (error);
-            }
-
             if (response == RESPONSE_CANCEL)
             {
                 abort_job (common);
@@ -6919,6 +6828,9 @@ retry:
                 g_assert_not_reached ();
             }
         }
+
+        break;
+    }
 }
 
 static void
@@ -7469,7 +7381,6 @@ create_task_thread_func (GTask        *task,
     g_autofree char *filename = NULL;
     char *filename_base;
     g_autofree char *dest_fs_type = NULL;
-    GError *error;
     gboolean res;
     gboolean filename_is_utf8;
     char *primary, *secondary;
@@ -7540,9 +7451,10 @@ create_task_thread_func (GTask        *task,
     }
     count = 1;
 
-retry:
+    while (TRUE)
+    {
+        g_autoptr (GError) error = NULL;
 
-        error = NULL;
         if (job->make_dir)
         {
             res = g_file_make_directory (dest,
@@ -7741,8 +7653,7 @@ retry:
                         dest = g_file_get_child (job->dest_dir, new_filename);
                     }
 
-                    g_error_free (error);
-                    goto retry;
+                    continue;
                 }
             }
 
@@ -7793,16 +7704,13 @@ retry:
                 {
                     dest = g_file_get_child (job->dest_dir, filename2);
                 }
-                g_error_free (error);
-                goto retry;
+
+                continue;
             }
-            else if (IS_IO_ERROR (error, CANCELLED))
+            else if (!IS_IO_ERROR (error, CANCELLED))
             {
-                g_error_free (error);
-            }
-            /* Other error */
-            else
-            {
+                /* Other error */
+
                 g_autofree gchar *basename = NULL;
                 g_autofree gchar *parse_name = NULL;
 
@@ -7829,8 +7737,6 @@ retry:
                                        RESPONSE_CANCEL, RESPONSE_SKIP,
                                        NULL);
 
-                g_error_free (error);
-
                 if (response == RESPONSE_CANCEL)
                 {
                     abort_job (common);
@@ -7845,6 +7751,9 @@ retry:
                 }
             }
         }
+
+        break;
+    }
 }
 
 void
