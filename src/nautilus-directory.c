@@ -652,37 +652,32 @@ nautilus_directory_get_existing_corresponding_file (NautilusDirectory *directory
 char *
 nautilus_directory_get_name_for_self_as_new_file (NautilusDirectory *directory)
 {
-    GFile *file;
-    char *directory_uri;
-    char *scheme;
-    char *name;
-    char *hostname = NULL;
+    const gchar *hostname;
+    const gchar *scheme;
+    g_autofree char *directory_uri = nautilus_directory_get_uri (directory);
+    g_autoptr (GUri) uri = g_uri_parse (directory_uri, G_URI_FLAGS_NONE, NULL);
 
-    directory_uri = nautilus_directory_get_uri (directory);
-    file = g_file_new_for_uri (directory_uri);
-    scheme = g_file_get_uri_scheme (file);
-    g_object_unref (file);
+    if (uri == NULL)
+    {
+        return g_strdup (directory_uri);
+    }
 
-    nautilus_uri_parse (directory_uri, &hostname, NULL, NULL);
+    hostname = g_uri_get_host (uri);
     if (hostname == NULL || (strlen (hostname) == 0))
     {
-        name = g_strdup (directory_uri);
+        return g_strdup (directory_uri);
     }
-    else if (scheme == NULL)
+
+    scheme = g_uri_get_scheme (uri);
+    if (scheme == NULL)
     {
-        name = g_strdup (hostname);
+        return g_strdup (hostname);
     }
     else
     {
         /* Translators: this is of the format "hostname (uri-scheme)" */
-        name = g_strdup_printf (_("%s (%s)"), hostname, scheme);
+        return g_strdup_printf (_("%s (%s)"), hostname, scheme);
     }
-
-    g_free (directory_uri);
-    g_free (scheme);
-    g_free (hostname);
-
-    return name;
 }
 
 char *
