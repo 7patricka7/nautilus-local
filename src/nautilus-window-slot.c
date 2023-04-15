@@ -1574,15 +1574,11 @@ nautilus_window_slot_display_view_selection_failure (NautilusWindow *window,
                                                      GFile          *location,
                                                      GError         *error)
 {
-    char *error_message;
-    char *detail_message;
-    char *scheme_string;
-    char *file_path;
+    const char *error_message = _("Oops! Something went wrong.");
+    g_autofree char *detail_message = NULL;
 
     /* Some sort of failure occurred. How 'bout we tell the user? */
 
-    error_message = g_strdup (_("Oops! Something went wrong."));
-    detail_message = NULL;
     if (error == NULL)
     {
         if (nautilus_file_is_directory (file))
@@ -1600,7 +1596,8 @@ nautilus_window_slot_display_view_selection_failure (NautilusWindow *window,
         {
             case G_IO_ERROR_NOT_FOUND:
             {
-                file_path = g_file_get_path (location);
+                g_autofree char *file_path = g_file_get_path (location);
+
                 if (file_path != NULL)
                 {
                     detail_message = g_strdup_printf (_("Unable to find “%s”. Please check the spelling and try again."),
@@ -1610,13 +1607,13 @@ nautilus_window_slot_display_view_selection_failure (NautilusWindow *window,
                 {
                     detail_message = g_strdup (_("Unable to find the requested file. Please check the spelling and try again."));
                 }
-                g_free (file_path);
             }
             break;
 
             case G_IO_ERROR_NOT_SUPPORTED:
             {
-                scheme_string = g_file_get_uri_scheme (location);
+                g_autofree char *scheme_string = g_file_get_uri_scheme (location);
+
                 if (scheme_string != NULL)
                 {
                     detail_message = g_strdup_printf (_("“%s” locations are not supported."),
@@ -1626,7 +1623,6 @@ nautilus_window_slot_display_view_selection_failure (NautilusWindow *window,
                 {
                     detail_message = g_strdup (_("Unable to handle this kind of location."));
                 }
-                g_free (scheme_string);
             }
             break;
 
@@ -1665,26 +1661,18 @@ nautilus_window_slot_display_view_selection_failure (NautilusWindow *window,
             case G_IO_ERROR_CANCELLED:
             case G_IO_ERROR_FAILED_HANDLED:
             {
-                goto done;
+                return;
             }
 
             default:
             {
+                detail_message = g_strdup_printf (_("Unhandled error message: %s"), error->message);
             }
             break;
         }
     }
 
-    if (detail_message == NULL)
-    {
-        detail_message = g_strdup_printf (_("Unhandled error message: %s"), error->message);
-    }
-
     show_dialog (error_message, detail_message, GTK_WINDOW (window), GTK_MESSAGE_ERROR);
-
-done:
-    g_free (error_message);
-    g_free (detail_message);
 }
 
 /* FIXME: This works in the folowwing way. begin_location_change tries to get the
