@@ -2456,6 +2456,19 @@ typedef struct
 } FindMountData;
 
 static void
+clear_find_mount_data (FindMountData *data)
+{
+    if (data->mount != NULL)
+    {
+        g_object_unref (data->mount);
+    }
+    g_object_unref (data->cancellable);
+    g_free (data);
+}
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (FindMountData, clear_find_mount_data)
+
+static void
 nautilus_window_slot_show_x_content_bar (NautilusWindowSlot *self,
                                          GMount             *mount,
                                          const char * const *x_content_types)
@@ -2478,11 +2491,11 @@ found_content_type_cb (const char **x_content_types,
                        gpointer     user_data)
 {
     NautilusWindowSlot *self;
-    FindMountData *data = user_data;
+    g_autoptr (FindMountData) data = user_data;
     self = data->slot;
     if (g_cancellable_is_cancelled (data->cancellable))
     {
-        goto out;
+        return;
     }
 
 
@@ -2492,11 +2505,6 @@ found_content_type_cb (const char **x_content_types,
     }
 
     self->find_mount_cancellable = NULL;
-
-out:
-    g_object_unref (data->mount);
-    g_object_unref (data->cancellable);
-    g_free (data);
 }
 
 static void
@@ -2504,33 +2512,28 @@ found_mount_cb (GObject      *source_object,
                 GAsyncResult *res,
                 gpointer      user_data)
 {
-    FindMountData *data = user_data;
-    NautilusWindowSlot *self;
-    GMount *mount;
-    self = NAUTILUS_WINDOW_SLOT (data->slot);
+    g_autoptr (FindMountData) data = user_data;
+    NautilusWindowSlot *self = NAUTILUS_WINDOW_SLOT (data->slot);
+
     if (g_cancellable_is_cancelled (data->cancellable))
     {
-        goto out;
-    }
-
-    mount = g_file_find_enclosing_mount_finish (G_FILE (source_object),
-                                                res,
-                                                NULL);
-    if (mount != NULL)
-    {
-        data->mount = mount;
-        nautilus_get_x_content_types_for_mount_async (mount,
-                                                      found_content_type_cb,
-                                                      data->cancellable,
-                                                      data);
         return;
     }
 
-    self->find_mount_cancellable = NULL;
-
-out:
-    g_object_unref (data->cancellable);
-    g_free (data);
+    data->mount = g_file_find_enclosing_mount_finish (G_FILE (source_object),
+                                                      res,
+                                                      NULL);
+    if (data->mount != NULL)
+    {
+        nautilus_get_x_content_types_for_mount_async (data->mount,
+                                                      found_content_type_cb,
+                                                      data->cancellable,
+                                                      data);
+    }
+    else
+    {
+        self->find_mount_cancellable = NULL;
+    }
 }
 
 static void
