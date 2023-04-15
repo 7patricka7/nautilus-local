@@ -1154,27 +1154,32 @@ nautilus_file_can_eject (NautilusFile *file)
             g_mount_can_eject (file->details->mount));
 }
 
-gboolean
-nautilus_file_can_start (NautilusFile *file)
+typedef gboolean (*DriveCheckFunc) (GDrive *);
+
+static gboolean
+can_mount_do (NautilusFile   *file,
+              DriveCheckFunc  drive_check_func)
 {
-    g_return_val_if_fail (NAUTILUS_IS_FILE (file), FALSE);
-
-    if (file->details->can_start)
-    {
-        return TRUE;
-    }
-
     if (file->details->mount != NULL)
     {
         g_autoptr (GDrive) drive = g_mount_get_drive (file->details->mount);
 
         if (drive != NULL)
         {
-            return g_drive_can_start (drive);
+            return drive_check_func (drive);
         }
     }
 
     return FALSE;
+}
+
+gboolean
+nautilus_file_can_start (NautilusFile *file)
+{
+    g_return_val_if_fail (NAUTILUS_IS_FILE (file), FALSE);
+
+    return file->details->can_start ||
+           can_mount_do (file, g_drive_can_start);
 }
 
 gboolean
@@ -1182,22 +1187,8 @@ nautilus_file_can_start_degraded (NautilusFile *file)
 {
     g_return_val_if_fail (NAUTILUS_IS_FILE (file), FALSE);
 
-    if (file->details->can_start_degraded)
-    {
-        return TRUE;
-    }
-
-    if (file->details->mount != NULL)
-    {
-        g_autoptr (GDrive) drive = g_mount_get_drive (file->details->mount);
-
-        if (drive != NULL)
-        {
-            return g_drive_can_start_degraded (drive);
-        }
-    }
-
-    return FALSE;
+    return file->details->can_start_degraded ||
+           can_mount_do (file, g_drive_can_start_degraded);
 }
 
 gboolean
@@ -1205,22 +1196,8 @@ nautilus_file_can_poll_for_media (NautilusFile *file)
 {
     g_return_val_if_fail (NAUTILUS_IS_FILE (file), FALSE);
 
-    if (file->details->can_poll_for_media)
-    {
-        return TRUE;
-    }
-
-    if (file->details->mount != NULL)
-    {
-        g_autoptr (GDrive) drive = g_mount_get_drive (file->details->mount);
-
-        if (drive != NULL)
-        {
-            return g_drive_can_poll_for_media (drive);
-        }
-    }
-
-    return FALSE;
+    return file->details->can_poll_for_media ||
+           can_mount_do (file, g_drive_can_poll_for_media);
 }
 
 gboolean
@@ -1228,22 +1205,8 @@ nautilus_file_is_media_check_automatic (NautilusFile *file)
 {
     g_return_val_if_fail (NAUTILUS_IS_FILE (file), FALSE);
 
-    if (file->details->is_media_check_automatic)
-    {
-        return TRUE;
-    }
-
-    if (file->details->mount != NULL)
-    {
-        g_autoptr (GDrive) drive = g_mount_get_drive (file->details->mount);
-
-        if (drive != NULL)
-        {
-            return g_drive_is_media_check_automatic (drive);
-        }
-    }
-
-    return FALSE;
+    return file->details->is_media_check_automatic ||
+           can_mount_do (file, g_drive_is_media_check_automatic);
 }
 
 
@@ -1252,22 +1215,8 @@ nautilus_file_can_stop (NautilusFile *file)
 {
     g_return_val_if_fail (NAUTILUS_IS_FILE (file), FALSE);
 
-    if (file->details->can_stop)
-    {
-        return TRUE;
-    }
-
-    if (file->details->mount != NULL)
-    {
-        g_autoptr (GDrive) drive = g_mount_get_drive (file->details->mount);
-
-        if (drive != NULL)
-        {
-            return g_drive_can_stop (drive);
-        }
-    }
-
-    return FALSE;
+    return file->details->can_stop ||
+           can_mount_do (file, g_drive_can_stop);
 }
 
 GDriveStartStopType
