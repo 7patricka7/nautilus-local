@@ -1182,16 +1182,14 @@ nautilus_window_slot_open_location_full (NautilusWindowSlot *self,
     {
         old_selection = nautilus_view_get_selection (self->content_view);
     }
-    if (old_location && g_file_equal (old_location, location) &&
-        nautilus_file_selection_equal (old_selection, new_selection))
+    if (old_location == NULL ||
+        !g_file_equal (old_location, location) ||
+        !nautilus_file_selection_equal (old_selection, new_selection))
     {
-        goto done;
+        begin_location_change (self, location, old_location, new_selection,
+                               NAUTILUS_LOCATION_CHANGE_STANDARD, 0, NULL);
     }
 
-    begin_location_change (self, location, old_location, new_selection,
-                           NAUTILUS_LOCATION_CHANGE_STANDARD, 0, NULL);
-
-done:
     nautilus_profile_end (NULL);
 }
 
@@ -1784,7 +1782,7 @@ static void
 got_file_info_for_view_selection_callback (NautilusFile *file,
                                            gpointer      callback_data)
 {
-    GError *error = NULL;
+    g_autoptr (GError) error = NULL;
     NautilusWindow *window;
     NautilusWindowSlot *self;
     NautilusFile *viewed_file;
@@ -1798,17 +1796,14 @@ got_file_info_for_view_selection_callback (NautilusFile *file,
     g_assert (self->determine_view_file == file);
     self->determine_view_file = NULL;
 
+    if (handle_mount_if_needed (self, file) ||
+        handle_regular_file_if_needed (self, file))
+    {
+        nautilus_file_unref (file);
+        return;
+    }
+
     nautilus_profile_start (NULL);
-
-    if (handle_mount_if_needed (self, file))
-    {
-        goto done;
-    }
-
-    if (handle_regular_file_if_needed (self, file))
-    {
-        goto done;
-    }
 
     if (self->mount_error)
     {
@@ -1933,9 +1928,6 @@ got_file_info_for_view_selection_callback (NautilusFile *file,
         }
     }
 
-done:
-    g_clear_error (&error);
-
     nautilus_file_unref (file);
     nautilus_profile_end (NULL);
 }
@@ -1951,7 +1943,6 @@ static gboolean
 setup_view (NautilusWindowSlot *self,
             NautilusView       *view)
 {
-    gboolean ret = TRUE;
     GFile *old_location;
     nautilus_profile_start (NULL);
 
@@ -1992,16 +1983,15 @@ setup_view (NautilusWindowSlot *self,
     }
     else
     {
-        ret = FALSE;
-        goto out;
+        nautilus_profile_end (NULL);
+        return FALSE;
     }
 
     change_view (self);
 
-out:
     nautilus_profile_end (NULL);
 
-    return ret;
+    return TRUE;
 }
 
 static void
@@ -2764,7 +2754,8 @@ nautilus_window_slot_switch_new_content_view (NautilusWindowSlot *self)
      * are the same, or the new_content_view is invalid */
     if (self->new_content_view == NULL || reusing_view)
     {
-        goto done;
+        self->new_content_view = NULL;
+        return;
     }
 
     if (self->content_view != NULL)
@@ -2807,10 +2798,7 @@ nautilus_window_slot_switch_new_content_view (NautilusWindowSlot *self)
         g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TOOLTIP]);
     }
 
-done:
-    /* Clean up, so we don't confuse having a new_content_view available or
-     * just that we didn't care about it here */
-    self->new_content_view = NULL;
+    g_assert (self->new_content_view == NULL);
 }
 
 /* This is called when we have decided we can actually change to the new view/location situation. */
