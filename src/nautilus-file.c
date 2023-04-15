@@ -4974,34 +4974,23 @@ nautilus_file_get_gicon (NautilusFile          *file,
         return NULL;
     }
 
-    icon = get_custom_icon (file);
-    if (icon != NULL)
+    if ((icon = get_custom_icon (file)) != NULL)
     {
         return icon;
     }
-
-    if (flags & NAUTILUS_FILE_ICON_FLAGS_USE_MOUNT_ICON)
+    else if (flags & NAUTILUS_FILE_ICON_FLAGS_USE_MOUNT_ICON &&
+             (icon = get_mount_icon (file)) != NULL)
     {
-        icon = get_mount_icon (file);
-
-        if (icon != NULL)
-        {
-            goto out;
-        }
+        return icon;
     }
-
-    if (file->details->icon)
+    else if (file->details->icon)
     {
-        icon = g_object_ref (file->details->icon);
+        return g_object_ref (file->details->icon);
     }
-
-out:
-    if (icon == NULL)
+    else
     {
-        icon = g_object_ref (get_default_file_icon ());
+        return g_object_ref (get_default_file_icon ());
     }
-
-    return icon;
 }
 
 char *
