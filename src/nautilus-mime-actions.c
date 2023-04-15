@@ -1387,24 +1387,21 @@ application_unhandled_uri (ActivateParameters *parameters,
 
     if (!show_install_mime)
     {
-        goto out;
+        /* show an unhelpful dialog */
+        show_unhandled_type_error (parameters_install);
     }
-
-    g_dbus_proxy_new_for_bus (G_BUS_TYPE_SESSION,
-                              G_DBUS_PROXY_FLAGS_NONE,
-                              NULL,
-                              "org.freedesktop.PackageKit",
-                              "/org/freedesktop/PackageKit",
-                              "org.freedesktop.PackageKit.Modify2",
-                              NULL,
-                              pk_proxy_appeared_cb,
-                              parameters_install);
-
-    return;
-
-out:
-    /* show an unhelpful dialog */
-    show_unhandled_type_error (parameters_install);
+    else
+    {
+        g_dbus_proxy_new_for_bus (G_BUS_TYPE_SESSION,
+                                  G_DBUS_PROXY_FLAGS_NONE,
+                                  NULL,
+                                  "org.freedesktop.PackageKit",
+                                  "/org/freedesktop/PackageKit",
+                                  "org.freedesktop.PackageKit.Modify2",
+                                  NULL,
+                                  pk_proxy_appeared_cb,
+                                  parameters_install);
+    }
 }
 
 static void
