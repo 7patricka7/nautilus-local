@@ -1451,24 +1451,15 @@ app_chooser_dialog_response_cb (GtkDialog *dialog,
                                 gint       response_id,
                                 gpointer   user_data)
 {
-    GtkWindow *parent_window;
-    GList *files;
-    GAppInfo *info;
-
-    parent_window = user_data;
-    files = g_object_get_data (G_OBJECT (dialog), "directory-view:files");
-
-    if (response_id != GTK_RESPONSE_OK)
+    if (response_id == GTK_RESPONSE_OK)
     {
-        goto out;
+        GtkWindow *parent_window = user_data;
+        GList *files = g_object_get_data (G_OBJECT (dialog), "directory-view:files");
+        g_autoptr (GAppInfo) info = nautilus_app_chooser_get_app_info (NAUTILUS_APP_CHOOSER (dialog));
+
+        nautilus_launch_application (info, files, parent_window);
     }
 
-    info = nautilus_app_chooser_get_app_info (NAUTILUS_APP_CHOOSER (dialog));
-
-    nautilus_launch_application (info, files, parent_window);
-
-    g_object_unref (info);
-out:
     gtk_window_destroy (GTK_WINDOW (dialog));
 }
 
