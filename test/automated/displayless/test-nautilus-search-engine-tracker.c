@@ -77,9 +77,10 @@ create_test_data (TrackerSparqlConnection *connection,
     g_autoptr (GMainLoop) main_loop = NULL;
     g_autoptr (GError) error = NULL;
     g_autoptr (TrackerNotifier) notifier = NULL;
+    g_autoptr (GDateTime) modification_time = NULL;
     TrackerAwaitFileData *await_data;
     gulong signal_id, timeout_id;
-
+    guint64 time;
     test_file = g_file_new_build_filename (indexed_tmpdir, "target_file.txt", NULL);
 
     main_loop = g_main_loop_new (NULL, 0);
@@ -91,6 +92,15 @@ create_test_data (TrackerSparqlConnection *connection,
     timeout_id = g_timeout_add_seconds (TRACKER_MINERS_AWAIT_TIMEOUT, timeout_cb, await_data);
 
     g_file_set_contents (g_file_peek_path (test_file), "Please show me in the search results", -1, &error);
+    g_assert_no_error (error);
+
+    modification_time = g_date_time_new_utc (2021, 8, 2, 0, 0, 0);
+    time = g_date_time_to_unix (modification_time);
+    g_file_set_attribute_uint64 (test_file,
+                                 G_FILE_ATTRIBUTE_TIME_MODIFIED,
+                                 time, G_FILE_QUERY_INFO_NONE,
+                                 NULL,
+                                 &error);
     g_assert_no_error (error);
 
     g_main_loop_run (main_loop);
@@ -137,6 +147,9 @@ main (int   argc,
     g_autoptr (NautilusQuery) query = NULL;
     g_autoptr (GFile) location = NULL;
     g_autoptr (GError) error = NULL;
+    g_autoptr (GPtrArray) date_range = NULL;
+    g_autoptr (GDateTime) start_date = NULL;
+    g_autoptr (GDateTime) end_date = NULL;
     const gchar *indexed_tmpdir;
 
     nautilus_tracker_setup_host_miner_fs_connection_sync ();
@@ -171,6 +184,17 @@ main (int   argc,
 
     query = nautilus_query_new ();
     nautilus_query_set_text (query, "target");
+    nautilus_query_set_search_type (query, NAUTILUS_QUERY_SEARCH_TYPE_LAST_MODIFIED);
+
+    start_date = g_date_time_new_utc (2021, 8, 1, 0, 0, 0);
+    end_date = g_date_time_new_utc (2021, 8, 3, 0, 0, 0);
+
+    date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
+    g_ptr_array_add (date_range, g_date_time_ref (start_date));
+    g_ptr_array_add (date_range, g_date_time_ref (end_date));
+
+    nautilus_query_set_date_range (query, date_range);
+
     nautilus_search_provider_set_query (NAUTILUS_SEARCH_PROVIDER (engine), query);
 
     location = g_file_new_for_path (indexed_tmpdir);

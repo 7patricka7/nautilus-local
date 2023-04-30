@@ -1,17 +1,16 @@
 #include "test-utilities.h"
 
-static guint total_hits = 0;
-
 static void
 hits_added_cb (NautilusSearchEngine *engine,
-               GSList               *hits)
+               GSList               *hits,
+               gint                 *total_hits)
 {
     g_print ("Hits added for search engine model!\n");
     for (gint hit_number = 0; hits != NULL; hits = hits->next, hit_number++)
     {
         g_print ("Hit %i: %s\n", hit_number, nautilus_search_hit_get_uri (hits->data));
 
-        total_hits += 1;
+        *total_hits += 1;
     }
 }
 
@@ -39,6 +38,11 @@ main (int   argc,
     g_autoptr (NautilusDirectory) directory = NULL;
     g_autoptr (NautilusQuery) query = NULL;
     g_autoptr (GFile) location = NULL;
+    gint *total_hits, *modification_hits, *access_hits;
+
+    total_hits = g_new0 (gint, 1);
+    modification_hits = g_new0 (gint, 1);
+    access_hits = g_new0 (gint, 1);
 
     loop = g_main_loop_new (NULL, FALSE);
 
@@ -51,9 +55,7 @@ main (int   argc,
 
     engine = nautilus_search_engine_new ();
     g_signal_connect (engine, "hits-added",
-                      G_CALLBACK (hits_added_cb), NULL);
-    g_signal_connect (engine, "finished",
-                      G_CALLBACK (finished_cb), loop);
+                      G_CALLBACK (hits_added_cb), total_hits);
 
     query = nautilus_query_new ();
     nautilus_query_set_text (query, "engine_model");
@@ -71,9 +73,25 @@ main (int   argc,
     nautilus_search_engine_start_by_target (NAUTILUS_SEARCH_PROVIDER (engine),
                                             NAUTILUS_SEARCH_ENGINE_MODEL_ENGINE);
 
+    engine = nautilus_search_engine_new ();
+    g_signal_connect (engine, "hits-added",
+                      G_CALLBACK (hits_added_cb), modification_hits);
+
+    test_nautilus_search_by_mtime (engine, NAUTILUS_SEARCH_ENGINE_MODEL_ENGINE, "engine_model");
+
+    engine = nautilus_search_engine_new ();
+    g_signal_connect (engine, "hits-added",
+                      G_CALLBACK (hits_added_cb), access_hits);
+    g_signal_connect (engine, "finished",
+                      G_CALLBACK (finished_cb), loop);
+
+    test_nautilus_search_by_atime (engine, NAUTILUS_SEARCH_ENGINE_MODEL_ENGINE, "engine_model");
+
     g_main_loop_run (loop);
 
-    g_assert_cmpint (total_hits, ==, 3);
+    g_assert_cmpint (*total_hits, ==, 3);
+    g_assert_cmpint (*modification_hits, ==, 1);
+    g_assert_cmpint (*access_hits, ==, 1);
 
     test_clear_tmp_dir ();
 

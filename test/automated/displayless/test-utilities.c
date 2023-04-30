@@ -56,13 +56,103 @@ empty_directory_by_prefix (GFile *parent,
     }
 }
 
+void test_nautilus_search_by_mtime (NautilusSearchEngine      *engine,
+                                    NautilusSearchEngineTarget target,
+                                    gchar                     *query_text)
+{
+    g_autoptr (NautilusQuery) query = NULL;
+    g_autoptr (GFile) location = NULL;
+    g_autoptr (NautilusDirectory) directory = NULL;
+    g_autoptr (GPtrArray) date_range = NULL;
+    g_autoptr (GDateTime) start_date = NULL;
+    g_autoptr (GDateTime) end_date = NULL;
+    NautilusSearchEngineModel *model;
+
+
+    query = nautilus_query_new ();
+    nautilus_query_set_text (query, query_text);
+    nautilus_query_set_search_type (query, NAUTILUS_QUERY_SEARCH_TYPE_LAST_MODIFIED);
+
+    start_date = g_date_time_new_utc (2021, 8, 1, 0, 0, 0);
+    end_date = g_date_time_new_utc (2021, 8, 2, 0, 0, 0);
+    date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
+    g_ptr_array_add (date_range, g_date_time_ref (start_date));
+    g_ptr_array_add (date_range, g_date_time_ref (end_date));
+
+    nautilus_query_set_date_range (query, date_range);
+
+
+    location = g_file_new_for_path (test_get_tmp_dir ());
+    directory = nautilus_directory_get (location);
+
+    if (target == NAUTILUS_SEARCH_ENGINE_MODEL_ENGINE)
+    {
+        model = nautilus_search_engine_get_model_provider (engine);
+        nautilus_search_engine_model_set_model (model, directory);
+    }
+
+    nautilus_query_set_location (query, location);
+
+
+    nautilus_search_provider_set_query (NAUTILUS_SEARCH_PROVIDER (engine), query);
+    nautilus_search_engine_start_by_target (NAUTILUS_SEARCH_PROVIDER (engine),
+                                            target);
+}
+
+void test_nautilus_search_by_atime (NautilusSearchEngine      *engine,
+                                    NautilusSearchEngineTarget target,
+                                    gchar                     *query_text)
+{
+    g_autoptr (NautilusQuery) query = NULL;
+    g_autoptr (GFile) location = NULL;
+    g_autoptr (NautilusDirectory) directory = NULL;
+    g_autoptr (GPtrArray) date_range = NULL;
+    g_autoptr (GDateTime) start_date = NULL;
+    g_autoptr (GDateTime) end_date = NULL;
+    NautilusSearchEngineModel *model;
+
+
+    query = nautilus_query_new ();
+    nautilus_query_set_text (query, query_text);
+    nautilus_query_set_search_type (query, NAUTILUS_QUERY_SEARCH_TYPE_LAST_ACCESS);
+
+    start_date = g_date_time_new_utc (2021, 8, 1, 0, 0, 0);
+    end_date = g_date_time_new_utc (2021, 8, 2, 0, 0, 0);
+    date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
+    g_ptr_array_add (date_range, g_date_time_ref (start_date));
+    g_ptr_array_add (date_range, g_date_time_ref (end_date));
+
+    nautilus_query_set_date_range (query, date_range);
+
+
+    location = g_file_new_for_path (test_get_tmp_dir ());
+    directory = nautilus_directory_get (location);
+
+    if (target == NAUTILUS_SEARCH_ENGINE_MODEL_ENGINE)
+    {
+        model = nautilus_search_engine_get_model_provider (engine);
+        nautilus_search_engine_model_set_model (model, directory);
+    }
+
+    nautilus_query_set_location (query, location);
+
+
+    nautilus_search_provider_set_query (NAUTILUS_SEARCH_PROVIDER (engine), query);
+    nautilus_search_engine_start_by_target (NAUTILUS_SEARCH_PROVIDER (engine),
+                                            target);
+}
+
 void
 create_search_file_hierarchy (gchar *search_engine)
 {
     g_autoptr (GFile) location = NULL;
     g_autoptr (GFile) file = NULL;
+    g_autoptr (GDateTime) datetime = NULL;
+    g_autoptr (GFileInfo) info = NULL;
+    g_autoptr (GError) error = NULL;
     GFileOutputStream *out;
     gchar *file_name;
+    guint64 time;
 
     location = g_file_new_for_path (test_get_tmp_dir ());
 
@@ -72,10 +162,30 @@ create_search_file_hierarchy (gchar *search_engine)
     out = g_file_create (file, G_FILE_CREATE_NONE, NULL, NULL);
     g_object_unref (out);
 
+    datetime = g_date_time_new_utc (2021, 8, 2, 0, 0, 0);
+    time = g_date_time_to_unix (datetime);
+    g_file_set_attribute_uint64 (file,
+                                 G_FILE_ATTRIBUTE_TIME_MODIFIED,
+                                 time,
+                                 G_FILE_QUERY_INFO_NONE,
+                                 NULL,
+                                 &error);
+    g_assert_no_error (error);
+
     file_name = g_strdup_printf ("engine_%s_directory", search_engine);
     file = g_file_get_child (location, file_name);
     g_free (file_name);
     g_file_make_directory (file, NULL, NULL);
+
+    datetime = g_date_time_new_utc (2021, 8, 2, 0, 0, 0);
+    time = g_date_time_to_unix (datetime);
+    g_file_set_attribute_uint64 (file,
+                                 G_FILE_ATTRIBUTE_TIME_ACCESS,
+                                 time,
+                                 G_FILE_QUERY_INFO_NONE,
+                                 NULL,
+                                 &error);
+    g_assert_no_error (error);
 
     file_name = g_strdup_printf ("%s_child", search_engine);
     file = g_file_get_child (file, file_name);
