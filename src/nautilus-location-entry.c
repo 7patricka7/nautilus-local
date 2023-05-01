@@ -762,7 +762,6 @@ nautilus_location_entry_init (NautilusLocationEntry *entry)
     priv = nautilus_location_entry_get_instance_private (entry);
 
     priv->completer = g_filename_completer_new ();
-    g_filename_completer_set_dirs_only (priv->completer, TRUE);
 
     nautilus_location_entry_set_secondary_action (entry,
                                                   NAUTILUS_LOCATION_ENTRY_ACTION_CLEAR);
