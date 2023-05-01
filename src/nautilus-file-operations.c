@@ -4285,6 +4285,14 @@ fat_str_replace (char *str,
 {
     gboolean success;
     int i;
+    const char ending_char = str[strlen (str) - 1];
+
+    if (ending_char == '.' ||
+        ending_char == ' ')
+    {
+        success = TRUE;
+        str[strlen (str) - 1] = replacement;
+    }
 
     success = FALSE;
     for (i = 0; str[i] != '\0'; i++)
