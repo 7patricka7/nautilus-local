@@ -3232,19 +3232,13 @@ retry:
 
     if (file_type != G_FILE_TYPE_DIRECTORY)
     {
-        g_autofree gchar *basename = NULL;
+        g_autofree gchar *basename = get_basename (dest);
+        g_autofree char *heading = g_strdup_printf (_("Error while copying to “%s”."), basename);
+        const char * body = _("The destination is not a folder.");
 
-        basename = get_basename (dest);
-        primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
-        secondary = g_strdup (_("The destination is not a folder."));
-
-        run_error (job,
-                   primary,
-                   secondary,
-                   NULL,
-                   FALSE,
-                   CANCEL,
-                   NULL);
+        show_dialog (heading,
+                     body,
+                     job->parent_window);
 
         abort_job (job);
         return;
@@ -3349,19 +3343,13 @@ retry:
         g_file_info_get_attribute_boolean (fsinfo,
                                            G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))
     {
-        g_autofree gchar *basename = NULL;
+        g_autofree gchar *basename = get_basename (dest);
+        g_autofree gchar *heading = g_strdup_printf (_("Error while copying to “%s”."), basename);
+        const char *body = _("The destination is read-only.");
 
-        basename = get_basename (dest);
-        primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
-        secondary = g_strdup (_("The destination is read-only."));
-
-        run_error (job,
-                   primary,
-                   secondary,
-                   NULL,
-                   FALSE,
-                   CANCEL,
-                   NULL);
+        show_dialog (heading,
+                     body,
+                     job->parent_window);
 
         g_error_free (error);
 
@@ -8089,16 +8077,14 @@ extract_job_on_scanned (AutoarExtractor *extractor,
      */
     if (total_size != G_MAXUINT64 && total_size > free_size)
     {
+        g_autofree char *primary = g_strdup_printf (_("Not enough free space to extract %s"),
+                                                    basename);
         nautilus_progress_info_take_status (extract_job->common.progress,
                                             g_strdup_printf (_("Error extracting “%s”"),
                                                              basename));
-        run_error (&extract_job->common,
-                   g_strdup_printf (_("Not enough free space to extract %s"), basename),
-                   NULL,
-                   NULL,
-                   FALSE,
-                   CANCEL,
-                   NULL);
+        show_dialog (primary,
+                     NULL,
+                     ((CommonJob *) extract_job)->parent_window);
 
         abort_job ((CommonJob *) extract_job);
     }
@@ -8523,13 +8509,9 @@ compress_job_on_error (AutoarCompressor *compressor,
     nautilus_progress_info_take_status (compress_job->common.progress,
                                         status);
 
-    run_error ((CommonJob *) compress_job,
-               g_strdup (_("There was an error while compressing files.")),
-               g_strdup (error->message),
-               NULL,
-               FALSE,
-               CANCEL,
-               NULL);
+    show_dialog (_("There was an error while compressing files."),
+                 error->message,
+                 ((CommonJob *) compress_job)->parent_window);
 
     abort_job ((CommonJob *) compress_job);
 }
