@@ -2271,8 +2271,7 @@ unmount_mount_callback (GObject      *source_object,
             }
             show_dialog (primary,
                          error->message,
-                         data->parent_window,
-                         GTK_MESSAGE_ERROR);
+                         data->parent_window);
             g_free (primary);
         }
     }
@@ -2588,8 +2587,7 @@ volume_mount_cb (GObject      *source_object,
             success = FALSE;
             show_dialog (primary,
                          error->message,
-                         parent,
-                         GTK_MESSAGE_ERROR);
+                         parent);
             g_free (primary);
         }
         g_error_free (error);

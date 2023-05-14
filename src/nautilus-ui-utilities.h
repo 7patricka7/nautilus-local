@@ -57,8 +57,7 @@ gchar     * get_text_for_date_range                 (GPtrArray         *date_ran
 
 AdwMessageDialog * show_dialog                      (const gchar       *primary_text,
                                                      const gchar       *secondary_text,
-                                                     GtkWindow         *parent,
-                                                     GtkMessageType     type);
+                                                     GtkWindow         *parent);
 
 void        show_unmount_progress_cb                (GMountOperation   *op,
                                                      const gchar       *message,
