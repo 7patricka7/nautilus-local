@@ -2886,7 +2886,7 @@ retry:
                                     secondary,
                                     details,
                                     FALSE,
-                                    CANCEL, RETRY, SKIP,
+                                    CANCEL, SKIP, RETRY,
                                     NULL);
 
             g_error_free (error);
