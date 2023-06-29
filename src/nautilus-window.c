@@ -745,6 +745,8 @@ remove_slot_from_window (NautilusWindowSlot *slot,
     disconnect_slot (window, slot);
     window->slots = g_list_remove (window->slots, slot);
     g_signal_emit (window, signals[SLOT_REMOVED], 0, slot);
+
+    nautilus_application_save_window_state ();
 }
 
 void
@@ -1774,6 +1776,8 @@ nautilus_window_close (NautilusWindow *window)
     }
 
     gtk_window_destroy (GTK_WINDOW (window));
+
+    nautilus_application_save_window_state ();
 }
 
 void

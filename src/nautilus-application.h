@@ -83,4 +83,6 @@ GtkWidget * nautilus_application_connect_server (NautilusApplication *applicatio
 void nautilus_application_search (NautilusApplication *application,
                                   NautilusQuery       *query);
 gboolean nautilus_application_is_sandboxed (void);
+
+void nautilus_application_save_window_state (void);
 G_END_DECLS

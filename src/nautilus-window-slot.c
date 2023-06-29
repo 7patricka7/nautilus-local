@@ -2113,6 +2113,8 @@ end_location_change (NautilusWindowSlot *self)
     g_free (self->pending_scroll_to);
     self->pending_scroll_to = NULL;
 
+    nautilus_application_save_window_state ();
+
     free_location_change (self);
 }
 

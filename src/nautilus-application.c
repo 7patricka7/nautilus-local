@@ -69,6 +69,8 @@
 #include "nautilus-window-slot.h"
 #include "nautilus-window.h"
 
+#define NAUTILUS_APPLICATION_STATE_SAVE_INTERVAL 5
+
 typedef struct
 {
     NautilusProgressPersistenceHandler *progress_handler;
@@ -90,6 +92,9 @@ typedef struct
     NautilusDBusLauncher *dbus_launcher;
 
     guint previewer_selection_id;
+
+    guint state_save_timer_id;
+    GCancellable *state_save_cancellable;
 } NautilusApplicationPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE (NautilusApplication, nautilus_application, ADW_TYPE_APPLICATION);
@@ -487,6 +492,77 @@ open_window (NautilusApplication *self,
     return window;
 }
 
+static gchar *
+nautilus_application_get_state_filename (void)
+{
+    return g_build_filename (g_get_user_config_dir (), "nautilus", "running-state", NULL);
+}
+
+static gboolean
+nautilus_application_state_file_exists (void)
+{
+    g_autoptr (GFile) location = NULL;
+    g_autofree gchar *filename = nautilus_application_get_state_filename ();
+
+    location = g_file_new_for_path (filename);
+    if (location != NULL)
+    {
+        return g_file_query_exists (location, NULL);
+    }
+
+    return FALSE;
+}
+
+static void
+nautilus_application_delete_state_file (void)
+{
+    g_autofree gchar *filename = NULL;
+    g_autoptr (GFile) location = NULL;
+
+    filename = nautilus_application_get_state_filename ();
+    location = g_file_new_for_path (filename);
+    g_file_delete (location, NULL, NULL);
+}
+
+static void
+nautilus_application_restore_previous_state (NautilusApplication *application)
+{
+    g_autofree gchar *filename = NULL;
+    g_autofree gchar *contents = NULL;
+
+    filename = nautilus_application_get_state_filename ();
+    if (g_file_get_contents (filename, &contents, NULL, NULL))
+    {
+        NautilusOpenFlags flags = NAUTILUS_OPEN_FLAG_NORMAL;
+        NautilusWindow *window = NULL;
+        GStrv lines;
+
+        nautilus_application_delete_state_file ();
+        lines = g_strsplit (contents, "\n", -1);
+        for (gint i = 0; i < g_strv_length (lines); i++)
+        {
+            if (g_strcmp0 (g_strstrip (lines[i]), "[window]") == 0)
+            {
+                window = nautilus_application_create_window (application);
+                flags = NAUTILUS_OPEN_FLAG_NORMAL;
+            }
+            else if (window != NULL && g_strcmp0 (g_strstrip (lines[i]), "") != 0)
+            {
+                g_autoptr (GFile) location = NULL;
+
+                location = g_file_new_for_uri (g_strstrip (lines[i]));
+                if (location != NULL)
+                {
+                    nautilus_application_open_location_full (application, location,
+                                                             flags | NAUTILUS_OPEN_FLAG_DONT_MAKE_ACTIVE,
+                                                             NULL, window, NULL);
+                }
+                flags = NAUTILUS_OPEN_FLAG_NEW_TAB;
+            }
+        }
+    }
+}
+
 void
 nautilus_application_open_location (NautilusApplication *self,
                                     GFile               *location,
@@ -588,6 +664,10 @@ nautilus_application_finalize (GObject *object)
     g_clear_object (&priv->tag_manager);
 
     g_clear_object (&priv->dbus_launcher);
+
+    g_cancellable_cancel (priv->state_save_cancellable);
+    g_clear_object (&priv->state_save_cancellable);
+    g_clear_handle_id (&priv->state_save_timer_id, g_source_remove);
 
     G_OBJECT_CLASS (nautilus_application_parent_class)->finalize (object);
 }
@@ -914,7 +994,17 @@ nautilus_application_handle_file_args (NautilusApplication *self,
         g_ptr_array_unref (file_array);
 
         /* No command line options or files, just activate the application */
-        nautilus_application_activate (G_APPLICATION (self));
+
+        if (nautilus_application_state_file_exists ())
+        {
+            /* If the application was launched without arguments, and was not cleanly
+             * exitted previously, launch the restored session. */
+            nautilus_application_restore_previous_state (self);
+        }
+        else
+        {
+            nautilus_application_activate (G_APPLICATION (self));
+        }
         return EXIT_SUCCESS;
     }
 
@@ -1090,6 +1180,7 @@ on_application_shutdown (GApplication *application,
     GList *notification_ids;
     GList *l;
     gchar *notification_id;
+    gboolean always_restore_previous_session;
 
     priv = nautilus_application_get_instance_private (self);
     notification_ids = g_hash_table_get_keys (priv->notifications);
@@ -1101,6 +1192,13 @@ on_application_shutdown (GApplication *application,
     }
 
     g_list_free (notification_ids);
+
+    always_restore_previous_session = g_settings_get_boolean (nautilus_preferences,
+                                                              NAUTILUS_PREFERENCES_ALWAYS_RESTORE_PREVIOUS_SESSION);
+    if (!always_restore_previous_session)
+    {
+        nautilus_application_delete_state_file ();
+    }
 
     nautilus_icon_info_clear_caches ();
 }
@@ -1513,4 +1611,67 @@ nautilus_application_is_sandboxed (void)
     }
 
     return ret;
+}
+
+static void
+state_file_saved (GObject      *source_object,
+                  GAsyncResult *res,
+                  gpointer      user_data)
+{
+    GString *string = user_data;
+    GFile *location = G_FILE (source_object);
+
+    g_file_replace_contents_finish (location, res, NULL, NULL);
+    g_string_free (string, TRUE);
+}
+
+static gboolean
+nautilus_application_save_window_state_cb (gpointer user_data)
+{
+    NautilusApplicationPrivate *priv = user_data;
+    GString *string = g_string_new ("");
+    g_autoptr (GFile) location = NULL;
+    g_autofree gchar *filename = NULL;
+
+    priv->state_save_timer_id = 0;
+
+    for (GList *l = priv->windows; l != NULL; l = l->next)
+    {
+        GList *slots = nautilus_window_get_slots (l->data);
+        g_string_append_printf (string, "[window]\n");
+
+        for (GList *s = slots; s != NULL; s = s->next)
+        {
+            NautilusBookmark *bookmark = nautilus_window_slot_get_bookmark (s->data);
+            g_autofree gchar *uri = NULL;
+
+            uri = nautilus_bookmark_get_uri (bookmark);
+            g_string_append_printf (string, "%s\n", uri);
+        }
+    }
+
+    filename = nautilus_application_get_state_filename ();
+    location = g_file_new_for_path (filename);
+    g_cancellable_cancel (priv->state_save_cancellable);
+    g_clear_object (&priv->state_save_cancellable);
+    priv->state_save_cancellable = g_cancellable_new ();
+    g_file_replace_contents_async (location, string->str, string->len, NULL, FALSE,
+                                   G_FILE_CREATE_NONE, priv->state_save_cancellable,
+                                   state_file_saved, string);
+
+    return G_SOURCE_REMOVE;
+}
+
+void
+nautilus_application_save_window_state (void)
+{
+    NautilusApplication *application = NAUTILUS_APPLICATION (g_application_get_default ());
+    NautilusApplicationPrivate *priv = nautilus_application_get_instance_private (application);
+
+    g_clear_handle_id (&priv->state_save_timer_id, g_source_remove);
+
+    /* Rate limit state saving in order to prevent excessive i/o.  Wait 5 seconds
+     * before saving and allow a future location change to cancel this save. */
+    priv->state_save_timer_id = g_timeout_add_seconds (NAUTILUS_APPLICATION_STATE_SAVE_INTERVAL,
+                                                       nautilus_application_save_window_state_cb, priv);
 }
