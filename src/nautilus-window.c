@@ -1597,7 +1597,7 @@ nautilus_window_initialize_actions (NautilusWindow *window)
     nautilus_application_set_accelerators (app, "win.prompt-root-location", ACCELS ("slash", "KP_Divide"));
     /* Support keyboard layouts which have a dead tilde key but not a tilde key. */
     nautilus_application_set_accelerators (app, "win.prompt-home-location", ACCELS ("asciitilde", "dead_tilde"));
-    nautilus_application_set_accelerator (app, "win.current-location-menu", "F10");
+    nautilus_application_set_accelerator (app, "win.current-location-menu", "F8");
     nautilus_application_set_accelerator (app, "win.restore-tab", "<shift><control>t");
     nautilus_application_set_accelerator (app, "win.toggle-sidebar", "F9");
 
