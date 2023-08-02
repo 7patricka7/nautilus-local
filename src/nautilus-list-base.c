@@ -1097,6 +1097,7 @@ get_selection (NautilusFilesView *files_view,
 {
     NautilusListBase *self = NAUTILUS_LIST_BASE (files_view);
     NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
+    NautilusFile *view_file = nautilus_files_view_get_directory_as_file (files_view);
     g_autoptr (GtkSelectionFilterModel) selection = NULL;
     guint n_selected;
     GList *selected_files = NULL;
@@ -1106,15 +1107,16 @@ get_selection (NautilusFilesView *files_view,
     for (guint i = 0; i < n_selected; i++)
     {
         g_autoptr (NautilusViewItem) item = NULL;
+        g_autoptr (NautilusFile) parent = NULL;
         NautilusFile *file;
 
         item = get_view_item (G_LIST_MODEL (selection), i);
         file = nautilus_view_item_get_file (item);
+        parent = nautilus_file_get_parent (file);
 
-        if (for_file_transfer)
+        if (for_file_transfer && view_file != parent)
         {
             /* If the parent is already selected don't include the child. */
-            g_autoptr (NautilusFile) parent = nautilus_file_get_parent (file);
             NautilusViewItem *parent_item;
             guint parent_pos;
 
@@ -1164,19 +1166,29 @@ real_end_file_changes (NautilusFilesView *files_view)
 }
 
 static void
-real_remove_file (NautilusFilesView *files_view,
-                  NautilusFile      *file,
-                  NautilusDirectory *directory)
+real_remove_files (NautilusFilesView *files_view,
+                   GList             *files,
+                   NautilusDirectory *directory)
 {
     NautilusListBase *self = NAUTILUS_LIST_BASE (files_view);
     NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
-    NautilusViewItem *item;
+    g_autoptr (GList) items = NULL;
 
-    item = nautilus_view_model_find_item_for_file (priv->model, file);
-    if (item != NULL)
+    for (GList *l = files; l != NULL; l = l->next)
     {
-        nautilus_view_model_remove_item (priv->model, item, directory);
-        nautilus_files_view_notify_selection_changed (files_view);
+        NautilusViewItem *item;
+
+        item = nautilus_view_model_find_item_for_file (priv->model, l->data);
+
+        if (item != NULL)
+        {
+            items = g_list_prepend (items, item);
+        }
+    }
+
+    if (items != NULL)
+    {
+        nautilus_view_model_remove_items (priv->model, items, directory);
     }
 }
 
@@ -1799,7 +1811,7 @@ nautilus_list_base_class_init (NautilusListBaseClass *klass)
     files_view_class->get_selection = real_get_selection;
     files_view_class->get_selection_for_file_transfer = real_get_selection_for_file_transfer;
     files_view_class->is_empty = real_is_empty;
-    files_view_class->remove_file = real_remove_file;
+    files_view_class->remove_files = real_remove_files;
     files_view_class->select_all = real_select_all;
     files_view_class->set_selection = real_set_selection;
     files_view_class->invert_selection = real_invert_selection;
