@@ -8,6 +8,13 @@ resources = gnome.compile_resources(
   extra_args: '--manual-register'
 )
 
+ext_man_codegen = gnome.gdbus_codegen(
+    'nautilus-ext-man-generated',
+    sources: join_paths(meson.project_source_root(), 'data', 'dbus-ext-man.xml'),
+    interface_prefix: 'org.gnome.Nautilus',
+    namespace: 'Nautilus'
+)
+
 libnautilus_sources = [
   gnome.mkenums(
     'nautilus-enum-types',
@@ -23,6 +30,8 @@ libnautilus_sources = [
     ]
   ),
   resources,
+  ext_man_codegen,
+  file_info_codegen,
   gnome.gdbus_codegen(
     'nautilus-freedesktop-generated',
     join_paths(
@@ -189,6 +198,8 @@ libnautilus_sources = [
   'nautilus-file-utilities.h',
   'nautilus-file.c',
   'nautilus-file.h',
+  'nautilus-file-impl-manager.c',
+  'nautilus-file-impl-manager.h',
   'nautilus-global-preferences.c',
   'nautilus-global-preferences.h',
   'nautilus-icon-info.c',
@@ -200,8 +211,6 @@ libnautilus_sources = [
   'nautilus-lib-self-check-functions.h',
   'nautilus-metadata.h',
   'nautilus-metadata.c',
-  'nautilus-module.c',
-  'nautilus-module.h',
   'nautilus-monitor.c',
   'nautilus-monitor.h',
   'nautilus-profile.c',
@@ -266,7 +275,6 @@ nautilus_deps = [
   config_h,
   eel_2,
   gio_unix,
-  gmodule,
   gnome_autoar,
   gnome_desktop,
   libadwaita,
@@ -338,5 +346,26 @@ executable(
     gtk,
     libadwaita,
   ],
+  install: true
+)
+
+ext_man_sources = [
+  'nautilus-ext-app.c',
+  'nautilus-module.c',
+  'nautilus-module.h',
+  ext_man_codegen,
+]
+
+executable(
+  'nautilus-ext-app',
+  ext_man_sources,
+  include_directories: nautilus_include_dirs,
+  dependencies: [
+    config_h,
+    gio,
+    gmodule,
+    nautilus_extension,
+  ],
+  install_dir: libexecdir,
   install: true
 )

@@ -47,6 +47,7 @@
 #include "nautilus-dbus-manager.h"
 #include "nautilus-directory-private.h"
 #include "nautilus-file.h"
+#include "nautilus-file-impl-manager.h"
 #include "nautilus-file-operations.h"
 #include "nautilus-file-undo-manager.h"
 #include "nautilus-file-utilities.h"
@@ -54,7 +55,6 @@
 #include "nautilus-global-preferences.h"
 #include "nautilus-icon-info.h"
 #include "nautilus-lib-self-check-functions.h"
-#include "nautilus-module.h"
 #include "nautilus-preferences-window.h"
 #include "nautilus-previewer.h"
 #include "nautilus-profile.h"
@@ -74,6 +74,7 @@ typedef struct
     NautilusProgressPersistenceHandler *progress_handler;
     NautilusDBusManager *dbus_manager;
     NautilusFreedesktopDBus *fdb_manager;
+    NautilusFileImplManager *file_impl_manager;
 
     NautilusBookmarkList *bookmark_list;
 
@@ -209,35 +210,6 @@ check_required_directories (NautilusApplication *self)
     nautilus_profile_end (NULL);
 
     return ret;
-}
-
-static void
-menu_provider_items_updated_handler (NautilusMenuProvider *provider,
-                                     GtkWidget            *parent_window,
-                                     gpointer              data)
-{
-    g_signal_emit_by_name (nautilus_signaller_get_current (),
-                           "popup-menu-changed");
-}
-
-static void
-menu_provider_init_callback (void)
-{
-    GList *providers;
-    GList *l;
-
-    providers = nautilus_module_get_extensions_for_type (NAUTILUS_TYPE_MENU_PROVIDER);
-
-    for (l = providers; l != NULL; l = l->next)
-    {
-        NautilusMenuProvider *provider = NAUTILUS_MENU_PROVIDER (l->data);
-
-        g_signal_connect_after (G_OBJECT (provider), "items-updated",
-                                (GCallback) menu_provider_items_updated_handler,
-                                NULL);
-    }
-
-    nautilus_module_extension_list_free (providers);
 }
 
 NautilusWindow *
@@ -1159,14 +1131,6 @@ nautilus_application_startup (GApplication *app)
     /* initialize preferences and create the global GSettings objects */
     nautilus_global_preferences_init ();
 
-    /* initialize nautilus modules */
-    nautilus_profile_start ("Modules");
-    nautilus_module_setup ();
-    nautilus_profile_end ("Modules");
-
-    /* attach menu-provider module callback */
-    menu_provider_init_callback ();
-
     /* Initialize the UI handler singleton for file operations */
     priv->progress_handler = nautilus_progress_persistence_handler_new (G_OBJECT (self));
 
@@ -1211,6 +1175,12 @@ nautilus_application_dbus_register (GApplication     *app,
 
     priv->fdb_manager = nautilus_freedesktop_dbus_new ();
     if (!nautilus_freedesktop_dbus_register (priv->fdb_manager, connection, error))
+    {
+        return FALSE;
+    }
+
+    priv->file_impl_manager = nautilus_file_impl_manager_new ();
+    if (!nautilus_file_impl_manager_register (priv->file_impl_manager, connection, error))
     {
         return FALSE;
     }
