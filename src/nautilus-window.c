@@ -80,7 +80,7 @@ static void mouse_forward_button_changed (gpointer callback_data);
 static void use_extra_mouse_buttons_changed (gpointer callback_data);
 static void nautilus_window_initialize_actions (NautilusWindow *window);
 static GtkWidget *nautilus_window_ensure_location_entry (NautilusWindow *window);
-static void nautilus_window_back_or_forward (NautilusWindow *window,
+void nautilus_window_back_or_forward (NautilusWindow *window,
                                              gboolean        back,
                                              guint           distance);
 
@@ -2029,7 +2029,7 @@ nautilus_window_close_request (GtkWindow *window)
     return FALSE;
 }
 
-static void
+void
 nautilus_window_back_or_forward (NautilusWindow *window,
                                  gboolean        back,
                                  guint           distance)
