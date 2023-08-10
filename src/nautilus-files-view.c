@@ -9357,13 +9357,6 @@ on_scroll_begin (GtkEventControllerScroll *scroll,
                                                GTK_EVENT_CONTROLLER_SCROLL_VERTICAL |
                                                GTK_EVENT_CONTROLLER_SCROLL_DISCRETE);
     }
-    /* else */
-    /* { */
-    /*     gtk_event_controller_scroll_set_flags (scroll, */
-    /*                                            GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL | */
-    /*                                            GTK_EVENT_CONTROLLER_SCROLL_DISCRETE); */
-
-    /* } */
 }
 
 static void
