@@ -9268,31 +9268,30 @@ static gdouble histScroll = 0;
 static gdouble scrollEdge = 66.0;
 static gboolean
 on_scroll_hor (GtkEventControllerScroll *scroll,
-           gdouble                   dx,
-           gdouble                   dy,
-           gpointer                  user_data)
+               gdouble                   dx,
+               gdouble                   dy,
+               gpointer                  user_data)
 {
     NautilusFilesView *directory_view;
-    GdkModifierType state;
     NautilusWindow *window;
     gint scaleFactor;
 
     directory_view = NAUTILUS_FILES_VIEW (user_data);
     window = NAUTILUS_WINDOW (gtk_widget_get_root (GTK_WIDGET (directory_view)));
 
-    scaleFactor = gtk_widget_get_scale_factor(GTK_WIDGET (window));
+    scaleFactor = gtk_widget_get_scale_factor (GTK_WIDGET (window));
 
     histScroll += dx;
 
     if (histScroll > scrollEdge * scaleFactor)
     {
         histScroll = 0;
-        nautilus_window_back_or_forward(window, true, 0);
+        nautilus_window_back_or_forward (window, true, 0);
     }
     else if (histScroll < -scrollEdge * scaleFactor)
     {
         histScroll = 0;
-        nautilus_window_back_or_forward(window, false, 0);
+        nautilus_window_back_or_forward (window, false, 0);
     }
 
     return GDK_EVENT_PROPAGATE;
@@ -9300,14 +9299,14 @@ on_scroll_hor (GtkEventControllerScroll *scroll,
 
 static void
 on_scroll_begin_hor (GtkEventControllerScroll *scroll,
-                 gpointer                  user_data)
+                     gpointer                  user_data)
 {
     histScroll = 0;
 }
 
 static void
 on_scroll_end_hor (GtkEventControllerScroll *scroll,
-               gpointer                  user_data)
+                   gpointer                  user_data)
 {
     histScroll = 0;
 }
@@ -9707,8 +9706,6 @@ nautilus_files_view_init (NautilusFilesView *view)
     gchar *templates_uri;
     GdkClipboard *clipboard;
     GApplication *app;
-    NautilusWindow *window;
-    NautilusFilesView *directory_view;
     const gchar *zoom_in_accels[] =
     {
         "<control>equal",
@@ -9935,3 +9932,4 @@ nautilus_files_view_new (guint               id,
 
     return view;
 }
+

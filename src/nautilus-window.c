@@ -81,8 +81,8 @@ static void use_extra_mouse_buttons_changed (gpointer callback_data);
 static void nautilus_window_initialize_actions (NautilusWindow *window);
 static GtkWidget *nautilus_window_ensure_location_entry (NautilusWindow *window);
 void nautilus_window_back_or_forward (NautilusWindow *window,
-                                             gboolean        back,
-                                             guint           distance);
+                                      gboolean        back,
+                                      guint           distance);
 
 /* Sanity check: highest mouse button value I could find was 14. 5 is our
  * lower threshold (well-documented to be the one of the button events for the
