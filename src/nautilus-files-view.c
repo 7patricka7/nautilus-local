@@ -268,6 +268,8 @@ typedef struct
 
     gulong name_accepted_handler_id;
     gulong cancelled_handler_id;
+
+    gdouble history_navigation_gesture_state;
 } NautilusFilesViewPrivate;
 
 /**
@@ -9264,51 +9266,48 @@ nautilus_files_view_set_property (GObject      *object,
     }
 }
 
-static gdouble histScroll = 0;
-static gdouble scrollEdge = 66.0;
 static gboolean
-on_scroll_hor (GtkEventControllerScroll *scroll,
-               gdouble                   dx,
-               gdouble                   dy,
-               gpointer                  user_data)
+on_scroll_horizontal (GtkEventControllerScroll *scroll,
+                       gdouble                   dx,
+                       gdouble                   dy,
+                       gpointer                  user_data)
 {
-    NautilusFilesView *directory_view;
+    const gdouble scroll_edge = 66.0;
+    NautilusFilesView *view;
+    NautilusFilesViewPrivate *priv;
     NautilusWindow *window;
-    gint scaleFactor;
+    gint scale_factor;
+    gdouble scaled_scroll_edge;
 
-    directory_view = NAUTILUS_FILES_VIEW (user_data);
-    window = NAUTILUS_WINDOW (gtk_widget_get_root (GTK_WIDGET (directory_view)));
+    view = NAUTILUS_FILES_VIEW (user_data);
+    priv = nautilus_files_view_get_instance_private (view);
+    scale_factor = gtk_widget_get_scale_factor (GTK_WIDGET (view));
+    scaled_scroll_edge = scale_factor * scroll_edge;
 
-    scaleFactor = gtk_widget_get_scale_factor (GTK_WIDGET (window));
+    priv->history_navigation_gesture_state += dx;
 
-    histScroll += dx;
-
-    if (histScroll > scrollEdge * scaleFactor)
+    if (ABS(priv->history_navigation_gesture_state) > scaled_scroll_edge)
     {
-        histScroll = 0;
-        nautilus_window_back_or_forward (window, true, 0);
-    }
-    else if (histScroll < -scrollEdge * scaleFactor)
-    {
-        histScroll = 0;
-        nautilus_window_back_or_forward (window, false, 0);
+        window = NAUTILUS_WINDOW (gtk_widget_get_root (GTK_WIDGET (view)));
+        nautilus_window_back_or_forward (window, priv->history_navigation_gesture_state < 0, 0);
+
+        priv->history_navigation_gesture_state = 0;
     }
 
     return GDK_EVENT_PROPAGATE;
 }
 
 static void
-on_scroll_begin_hor (GtkEventControllerScroll *scroll,
+on_scroll_horizontal_start_stop (GtkEventControllerScroll *scroll,
                      gpointer                  user_data)
 {
-    histScroll = 0;
-}
+    NautilusFilesView *view;
+    NautilusFilesViewPrivate *priv;
 
-static void
-on_scroll_end_hor (GtkEventControllerScroll *scroll,
-                   gpointer                  user_data)
-{
-    histScroll = 0;
+    view = NAUTILUS_FILES_VIEW (user_data);
+    priv = nautilus_files_view_get_instance_private (view);
+
+    priv->history_navigation_gesture_state = 0;
 }
 
 /* handle Ctrl+Scroll, which will cause a zoom-in/out */
@@ -9765,9 +9764,9 @@ nautilus_files_view_init (NautilusFilesView *view)
     controller = gtk_event_controller_scroll_new (GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL);
     gtk_widget_add_controller (priv->scrolled_window, controller);
     gtk_event_controller_set_propagation_phase (controller, GTK_PHASE_CAPTURE);
-    g_signal_connect (controller, "scroll", G_CALLBACK (on_scroll_hor), view);
-    g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_begin_hor), view);
-    g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_end_hor), view);
+    g_signal_connect (controller, "scroll", G_CALLBACK (on_scroll_horizontal), view);
+    g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_horizontal_start_stop), view);
+    g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_horizontal_start_stop), view);
 
     g_signal_connect (priv->floating_bar,
                       "stop",
