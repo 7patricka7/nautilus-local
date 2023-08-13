@@ -9343,8 +9343,15 @@ on_scroll (GtkEventControllerScroll *scroll,
 {
     NautilusFilesView *directory_view;
     GdkModifierType state;
+    NautilusFilesViewPrivate *priv;
 
     directory_view = NAUTILUS_FILES_VIEW (user_data);
+
+    priv = nautilus_files_view_get_instance_private (directory_view);
+    if (priv->history_navigation_gesture_state > 0)
+        priv->history_navigation_gesture_state = MAX(0,priv->history_navigation_gesture_state - ABS(dy));
+    else
+        priv->history_navigation_gesture_state = MIN(0,priv->history_navigation_gesture_state + ABS(dy));
 
     state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (scroll));
     if (state & GDK_CONTROL_MASK)
