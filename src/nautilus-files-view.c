@@ -9289,7 +9289,7 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
     if (ABS(priv->history_navigation_gesture_state) > scaled_scroll_edge)
     {
         window = NAUTILUS_WINDOW (gtk_widget_get_root (GTK_WIDGET (view)));
-        nautilus_window_back_or_forward (window, priv->history_navigation_gesture_state > 0, 0);
+        nautilus_window_back_or_forward (window, priv->history_navigation_gesture_state < 0, 0);
 
         priv->history_navigation_gesture_state = 0;
     }
