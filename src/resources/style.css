@@ -283,3 +283,8 @@ label.encrypted_zip {
 rubberband {
   border-radius: 6px;
 }
+
+.navigation-swipe {
+  background-color: @accent_bg_color;
+  border: solid alpha(currentColor, 1) 1px;
+}
