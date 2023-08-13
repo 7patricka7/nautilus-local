@@ -9762,7 +9762,7 @@ nautilus_files_view_init (NautilusFilesView *view)
     g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_end), view);
 
     controller = gtk_event_controller_scroll_new (GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL);
-    gtk_widget_add_controller (priv->scrolled_window, controller);
+    gtk_widget_add_controller (priv->overlay, controller);
     gtk_event_controller_set_propagation_phase (controller, GTK_PHASE_CAPTURE);
     g_signal_connect (controller, "scroll", G_CALLBACK (on_scroll_horizontal), view);
     g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_horizontal_start_stop), view);
