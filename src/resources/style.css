@@ -287,4 +287,5 @@ rubberband {
 .navigation-swipe {
   background-color: @accent_bg_color;
   border: solid alpha(currentColor, 1) 1px;
+  box-shadow: 0px 0px 20px @view_bg_color;
 }
