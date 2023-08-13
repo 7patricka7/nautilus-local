@@ -269,7 +269,10 @@ typedef struct
     gulong name_accepted_handler_id;
     gulong cancelled_handler_id;
 
+    /* Touch history navigation */
     gdouble history_navigation_gesture_state;
+    GtkWidget *swipe_arrow_left;
+    GtkWidget *swipe_arrow_right;
 } NautilusFilesViewPrivate;
 
 /**
@@ -9266,6 +9269,13 @@ nautilus_files_view_set_property (GObject      *object,
     }
 }
 
+static void update_swipe_arrow(GtkWidget *arrow, gdouble normalized_state, gdouble edge)
+{
+    gtk_widget_set_opacity (arrow, normalized_state);
+    gtk_widget_set_margin_end (arrow, normalized_state * edge);
+    gtk_widget_set_margin_start (arrow, normalized_state * edge);
+}
+
 static gboolean
 on_scroll_horizontal (GtkEventControllerScroll *scroll,
                        gdouble                   dx,
@@ -9278,6 +9288,7 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
     NautilusWindow *window;
     gint scale_factor;
     gdouble scaled_scroll_edge;
+    gdouble normalized_scroll_state;
 
     view = NAUTILUS_FILES_VIEW (user_data);
     priv = nautilus_files_view_get_instance_private (view);
@@ -9285,6 +9296,11 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
     scaled_scroll_edge = scale_factor * scroll_edge;
 
     priv->history_navigation_gesture_state += dx;
+
+    normalized_scroll_state = priv->history_navigation_gesture_state / scaled_scroll_edge;
+
+    update_swipe_arrow(priv->swipe_arrow_right, MAX(normalized_scroll_state,0), scaled_scroll_edge);
+    update_swipe_arrow(priv->swipe_arrow_left, MAX(-normalized_scroll_state,0), scaled_scroll_edge);
 
     if (ABS(priv->history_navigation_gesture_state) > scaled_scroll_edge)
     {
@@ -9295,6 +9311,12 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
     }
 
     return GDK_EVENT_PROPAGATE;
+}
+
+static void reset_swipe_arrows(NautilusFilesViewPrivate *priv)
+{
+    update_swipe_arrow(priv->swipe_arrow_right, 0, 0);
+    update_swipe_arrow(priv->swipe_arrow_left, 0, 0);
 }
 
 static void
@@ -9308,6 +9330,8 @@ on_scroll_horizontal_start_stop (GtkEventControllerScroll *scroll,
     priv = nautilus_files_view_get_instance_private (view);
 
     priv->history_navigation_gesture_state = 0;
+
+    reset_swipe_arrows(priv);
 }
 
 /* handle Ctrl+Scroll, which will cause a zoom-in/out */
@@ -9645,6 +9669,8 @@ nautilus_files_view_class_init (NautilusFilesViewClass *klass)
     gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, empty_view_page);
     gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, scrolled_window);
     gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, floating_bar);
+    gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, swipe_arrow_right);
+    gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, swipe_arrow_left);
 
     /* See also the global accelerators in init() in addition to all the local
      * ones defined below.
@@ -9767,6 +9793,8 @@ nautilus_files_view_init (NautilusFilesView *view)
     g_signal_connect (controller, "scroll", G_CALLBACK (on_scroll_horizontal), view);
     g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_horizontal_start_stop), view);
     g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_horizontal_start_stop), view);
+
+    reset_swipe_arrows(priv);
 
     g_signal_connect (priv->floating_bar,
                       "stop",
