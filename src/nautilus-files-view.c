@@ -9276,13 +9276,20 @@ static void update_swipe_arrow(GtkWidget *arrow, gdouble normalized_state, gdoub
     gtk_widget_set_margin_start (arrow, normalized_state * edge);
 }
 
+static void reset_swipe_state(NautilusFilesViewPrivate *priv)
+{
+    priv->history_navigation_gesture_state = 0;
+    update_swipe_arrow(priv->swipe_arrow_right, 0, 0);
+    update_swipe_arrow(priv->swipe_arrow_left, 0, 0);
+}
+
 static gboolean
 on_scroll_horizontal (GtkEventControllerScroll *scroll,
                        gdouble                   dx,
                        gdouble                   dy,
                        gpointer                  user_data)
 {
-    const gdouble scroll_edge = 66.0;
+    const gdouble scroll_edge = 100.0;
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
     NautilusWindow *window;
@@ -9307,16 +9314,10 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
         window = NAUTILUS_WINDOW (gtk_widget_get_root (GTK_WIDGET (view)));
         nautilus_window_back_or_forward (window, priv->history_navigation_gesture_state < 0, 0);
 
-        priv->history_navigation_gesture_state = 0;
+        reset_swipe_state(priv);
     }
 
     return GDK_EVENT_PROPAGATE;
-}
-
-static void reset_swipe_arrows(NautilusFilesViewPrivate *priv)
-{
-    update_swipe_arrow(priv->swipe_arrow_right, 0, 0);
-    update_swipe_arrow(priv->swipe_arrow_left, 0, 0);
 }
 
 static void
@@ -9329,9 +9330,7 @@ on_scroll_horizontal_start_stop (GtkEventControllerScroll *scroll,
     view = NAUTILUS_FILES_VIEW (user_data);
     priv = nautilus_files_view_get_instance_private (view);
 
-    priv->history_navigation_gesture_state = 0;
-
-    reset_swipe_arrows(priv);
+    reset_swipe_state(priv);
 }
 
 /* handle Ctrl+Scroll, which will cause a zoom-in/out */
@@ -9794,7 +9793,7 @@ nautilus_files_view_init (NautilusFilesView *view)
     g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_horizontal_start_stop), view);
     g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_horizontal_start_stop), view);
 
-    reset_swipe_arrows(priv);
+    reset_swipe_state(priv);
 
     g_signal_connect (priv->floating_bar,
                       "stop",
