@@ -9271,6 +9271,7 @@ nautilus_files_view_set_property (GObject      *object,
 
 static void update_swipe_arrow(GtkWidget *arrow, gdouble normalized_state, gdouble edge)
 {
+    normalized_state = MAX(0,normalized_state - .15) * 1.18;
     gtk_widget_set_opacity (arrow, normalized_state);
     gtk_widget_set_margin_end (arrow, normalized_state * edge);
     gtk_widget_set_margin_start (arrow, normalized_state * edge);
