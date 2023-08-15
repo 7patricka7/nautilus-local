@@ -2161,7 +2161,7 @@ nautilus_window_slot_set_content_view (NautilusWindowSlot *self,
 
 gboolean
 nautilus_window_slot_can_go_back_or_forward (NautilusWindowSlot *self,
-                                              gboolean            back)
+                                             gboolean            back)
 {
     GList *list;
     list = back ? self->back_list : self->forward_list;

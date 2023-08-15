@@ -9269,27 +9269,27 @@ nautilus_files_view_set_property (GObject      *object,
     }
 }
 
-static void update_swipe_arrow(GtkWidget  *arrow,
-                               gdouble     normalized_state,
-                               gdouble     edge,
-                               gboolean    blocked)
+static void update_swipe_arrow(GtkWidget *arrow,
+                               gdouble    normalized_state,
+                               gdouble    edge,
+                               gboolean   blocked)
 {
     gdouble margin;
 
     if (gtk_widget_get_halign (arrow) == GTK_ALIGN_START)
     {
-        gtk_button_set_icon_name (GTK_BUTTON(arrow), blocked ? "go-first" : "go-previous");
+        gtk_button_set_icon_name (GTK_BUTTON (arrow), blocked ? "go-first" : "go-previous");
         normalized_state = -normalized_state;
     }
     else
     {
-        gtk_button_set_icon_name (GTK_BUTTON(arrow), blocked ? "go-last" : "go-next");
+        gtk_button_set_icon_name (GTK_BUTTON (arrow), blocked ? "go-last" : "go-next");
     }
 
-    normalized_state = MAX(0,MIN(1,MAX(0,normalized_state)) - .15) * 1.18;
+    normalized_state = MAX (0, MIN (1, MAX (0, normalized_state)) - .15) * 1.18;
     gtk_widget_set_opacity (arrow, normalized_state);
 
-    margin = MAX(0,normalized_state * (blocked ? .33 : 1.0) - .15) * edge;
+    margin = MAX (0, normalized_state * (blocked ? .33 : 1.0) - .15) * edge;
     gtk_widget_set_margin_end (arrow, margin);
     gtk_widget_set_margin_start (arrow, margin);
 }
@@ -9297,15 +9297,15 @@ static void update_swipe_arrow(GtkWidget  *arrow,
 static void reset_swipe_state(NautilusFilesViewPrivate *priv)
 {
     priv->history_navigation_gesture_state = 0;
-    update_swipe_arrow(priv->swipe_arrow_right, 0, 0, false);
-    update_swipe_arrow(priv->swipe_arrow_left, 0, 0, false);
+    update_swipe_arrow (priv->swipe_arrow_right, 0, 0, false);
+    update_swipe_arrow (priv->swipe_arrow_left, 0, 0, false);
 }
 
 static gboolean
 on_scroll_horizontal (GtkEventControllerScroll *scroll,
-                       gdouble                   dx,
-                       gdouble                   dy,
-                       gpointer                  user_data)
+                      gdouble                   dx,
+                      gdouble                   dy,
+                      gpointer                  user_data)
 {
     const gdouble scroll_edge = 100.0;
     NautilusFilesView *view;
@@ -9324,15 +9324,15 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
 
     normalized_scroll_state = priv->history_navigation_gesture_state / scaled_scroll_edge;
 
-    blocked = !nautilus_window_slot_can_go_back_or_forward(priv->slot, normalized_scroll_state < 0);
+    blocked = !nautilus_window_slot_can_go_back_or_forward (priv->slot, normalized_scroll_state < 0);
 
-    update_swipe_arrow(priv->swipe_arrow_right, normalized_scroll_state, scaled_scroll_edge, blocked);
-    update_swipe_arrow(priv->swipe_arrow_left, normalized_scroll_state, scaled_scroll_edge, blocked);
+    update_swipe_arrow (priv->swipe_arrow_right, normalized_scroll_state, scaled_scroll_edge, blocked);
+    update_swipe_arrow (priv->swipe_arrow_left, normalized_scroll_state, scaled_scroll_edge, blocked);
 
-    if (ABS(priv->history_navigation_gesture_state) > scaled_scroll_edge && !blocked)
+    if (ABS (priv->history_navigation_gesture_state) > scaled_scroll_edge && !blocked)
     {
-        nautilus_window_slot_back_or_forward(priv->slot, normalized_scroll_state < 0, 0);
-        reset_swipe_state(priv);
+        nautilus_window_slot_back_or_forward (priv->slot, normalized_scroll_state < 0, 0);
+        reset_swipe_state (priv);
     }
 
     return GDK_EVENT_PROPAGATE;
@@ -9340,7 +9340,7 @@ on_scroll_horizontal (GtkEventControllerScroll *scroll,
 
 static void
 on_scroll_horizontal_start_stop (GtkEventControllerScroll *scroll,
-                     gpointer                  user_data)
+                                 gpointer                  user_data)
 {
     NautilusFilesView *view;
     NautilusFilesViewPrivate *priv;
@@ -9348,7 +9348,7 @@ on_scroll_horizontal_start_stop (GtkEventControllerScroll *scroll,
     view = NAUTILUS_FILES_VIEW (user_data);
     priv = nautilus_files_view_get_instance_private (view);
 
-    reset_swipe_state(priv);
+    reset_swipe_state (priv);
 }
 
 /* handle Ctrl+Scroll, which will cause a zoom-in/out */
@@ -9366,9 +9366,13 @@ on_scroll (GtkEventControllerScroll *scroll,
 
     priv = nautilus_files_view_get_instance_private (directory_view);
     if (priv->history_navigation_gesture_state > 0)
-        priv->history_navigation_gesture_state = MAX(0,priv->history_navigation_gesture_state - ABS(dy));
+    {
+        priv->history_navigation_gesture_state = MAX (0, priv->history_navigation_gesture_state - ABS (dy));
+    }
     else
-        priv->history_navigation_gesture_state = MIN(0,priv->history_navigation_gesture_state + ABS(dy));
+    {
+        priv->history_navigation_gesture_state = MIN (0, priv->history_navigation_gesture_state + ABS (dy));
+    }
 
     state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (scroll));
     if (state & GDK_CONTROL_MASK)
@@ -9818,7 +9822,7 @@ nautilus_files_view_init (NautilusFilesView *view)
     g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_horizontal_start_stop), view);
     g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_horizontal_start_stop), view);
 
-    reset_swipe_state(priv);
+    reset_swipe_state (priv);
 
     g_signal_connect (priv->floating_bar,
                       "stop",
@@ -9983,4 +9987,3 @@ nautilus_files_view_new (guint               id,
 
     return view;
 }
-
