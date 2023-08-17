@@ -36,6 +36,30 @@
             <property name="spacing">8</property>
           </object>
         </child>
+        <child type="overlay">
+          <object class="GtkButton" id="swipe_arrow_left">
+            <property name="halign">start</property>
+            <property name="valign">center</property>
+            <property name="icon-name">go-previous</property>
+            <style>
+              <class name="navigation-swipe"/>
+              <class name="circular"/>
+            </style>
+          </object>
+        </child>
+        <child type="overlay">
+          <object class="GtkButton" id="swipe_arrow_right">
+            <property name="halign">end</property>
+            <property name="valign">center</property>
+            <property name="icon-name">go-next</property>
+            <style>
+              <class name="navigation-swipe"/>
+              <class name="circular"/>
+            </style>
+          </object>
+        </child>
+        <child type="overlay">
+        </child>
       </object>
     </child>
   </template>

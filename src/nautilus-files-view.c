@@ -268,6 +268,11 @@ typedef struct
 
     gulong name_accepted_handler_id;
     gulong cancelled_handler_id;
+
+    /* Touch history navigation */
+    gdouble history_navigation_gesture_state;
+    GtkWidget *swipe_arrow_left;
+    GtkWidget *swipe_arrow_right;
 } NautilusFilesViewPrivate;
 
 /**
@@ -9253,6 +9258,88 @@ nautilus_files_view_set_property (GObject      *object,
     }
 }
 
+static void update_swipe_arrow(GtkWidget *arrow,
+                               gdouble    normalized_state,
+                               gdouble    edge,
+                               gboolean   blocked)
+{
+    gdouble margin;
+
+    if (gtk_widget_get_halign (arrow) == GTK_ALIGN_START)
+    {
+        gtk_button_set_icon_name (GTK_BUTTON (arrow), blocked ? "go-first" : "go-previous");
+        normalized_state = -normalized_state;
+    }
+    else
+    {
+        gtk_button_set_icon_name (GTK_BUTTON (arrow), blocked ? "go-last" : "go-next");
+    }
+
+    normalized_state = MAX (0, MIN (1, MAX (0, normalized_state)) - .15) * 1.18;
+    gtk_widget_set_opacity (arrow, normalized_state);
+
+    margin = MAX (0, normalized_state * (blocked ? .33 : 1.0) - .15) * edge;
+    gtk_widget_set_margin_end (arrow, margin);
+    gtk_widget_set_margin_start (arrow, margin);
+}
+
+static void reset_swipe_state(NautilusFilesViewPrivate *priv)
+{
+    priv->history_navigation_gesture_state = 0;
+    update_swipe_arrow (priv->swipe_arrow_right, 0, 0, false);
+    update_swipe_arrow (priv->swipe_arrow_left, 0, 0, false);
+}
+
+static gboolean
+on_scroll_horizontal (GtkEventControllerScroll *scroll,
+                      gdouble                   dx,
+                      gdouble                   dy,
+                      gpointer                  user_data)
+{
+    const gdouble scroll_edge = 100.0;
+    NautilusFilesView *view;
+    NautilusFilesViewPrivate *priv;
+    gint scale_factor;
+    gdouble scaled_scroll_edge;
+    gdouble normalized_scroll_state;
+    gboolean blocked;
+
+    view = NAUTILUS_FILES_VIEW (user_data);
+    priv = nautilus_files_view_get_instance_private (view);
+    scale_factor = gtk_widget_get_scale_factor (GTK_WIDGET (view));
+    scaled_scroll_edge = scale_factor * scroll_edge;
+
+    priv->history_navigation_gesture_state += dx;
+
+    normalized_scroll_state = priv->history_navigation_gesture_state / scaled_scroll_edge;
+
+    blocked = !nautilus_window_slot_can_go_back_or_forward (priv->slot, normalized_scroll_state < 0);
+
+    update_swipe_arrow (priv->swipe_arrow_right, normalized_scroll_state, scaled_scroll_edge, blocked);
+    update_swipe_arrow (priv->swipe_arrow_left, normalized_scroll_state, scaled_scroll_edge, blocked);
+
+    if (ABS (priv->history_navigation_gesture_state) > scaled_scroll_edge && !blocked)
+    {
+        nautilus_window_slot_back_or_forward (priv->slot, normalized_scroll_state < 0, 0);
+        reset_swipe_state (priv);
+    }
+
+    return GDK_EVENT_PROPAGATE;
+}
+
+static void
+on_scroll_horizontal_start_stop (GtkEventControllerScroll *scroll,
+                                 gpointer                  user_data)
+{
+    NautilusFilesView *view;
+    NautilusFilesViewPrivate *priv;
+
+    view = NAUTILUS_FILES_VIEW (user_data);
+    priv = nautilus_files_view_get_instance_private (view);
+
+    reset_swipe_state (priv);
+}
+
 /* handle Ctrl+Scroll, which will cause a zoom-in/out */
 static gboolean
 on_scroll (GtkEventControllerScroll *scroll,
@@ -9262,8 +9349,19 @@ on_scroll (GtkEventControllerScroll *scroll,
 {
     NautilusFilesView *directory_view;
     GdkModifierType state;
+    NautilusFilesViewPrivate *priv;
 
     directory_view = NAUTILUS_FILES_VIEW (user_data);
+
+    priv = nautilus_files_view_get_instance_private (directory_view);
+    if (priv->history_navigation_gesture_state > 0)
+    {
+        priv->history_navigation_gesture_state = MAX (0, priv->history_navigation_gesture_state - ABS (dy));
+    }
+    else
+    {
+        priv->history_navigation_gesture_state = MIN (0, priv->history_navigation_gesture_state + ABS (dy));
+    }
 
     state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (scroll));
     if (state & GDK_CONTROL_MASK)
@@ -9304,6 +9402,9 @@ static void
 on_scroll_end (GtkEventControllerScroll *scroll,
                gpointer                  user_data)
 {
+    NautilusFilesView *directory_view;
+    directory_view = NAUTILUS_FILES_VIEW (user_data);
+
     gtk_event_controller_scroll_set_flags (scroll, GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
 }
 
@@ -9585,6 +9686,8 @@ nautilus_files_view_class_init (NautilusFilesViewClass *klass)
     gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, empty_view_page);
     gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, scrolled_window);
     gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, floating_bar);
+    gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, swipe_arrow_right);
+    gtk_widget_class_bind_template_child_private (widget_class, NautilusFilesView, swipe_arrow_left);
 
     /* See also the global accelerators in init() in addition to all the local
      * ones defined below.
@@ -9700,6 +9803,15 @@ nautilus_files_view_init (NautilusFilesView *view)
     g_signal_connect (controller, "scroll", G_CALLBACK (on_scroll), view);
     g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_begin), view);
     g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_end), view);
+
+    controller = gtk_event_controller_scroll_new (GTK_EVENT_CONTROLLER_SCROLL_HORIZONTAL);
+    gtk_widget_add_controller (priv->overlay, controller);
+    gtk_event_controller_set_propagation_phase (controller, GTK_PHASE_CAPTURE);
+    g_signal_connect (controller, "scroll", G_CALLBACK (on_scroll_horizontal), view);
+    g_signal_connect (controller, "scroll-begin", G_CALLBACK (on_scroll_horizontal_start_stop), view);
+    g_signal_connect (controller, "scroll-end", G_CALLBACK (on_scroll_horizontal_start_stop), view);
+
+    reset_swipe_state (priv);
 
     g_signal_connect (priv->floating_bar,
                       "stop",
