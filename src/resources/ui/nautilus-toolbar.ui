@@ -154,6 +154,7 @@
             <property name="halign">center</property>
             <property name="valign">center</property>
             <property name="icon_name">open-menu-symbolic</property>
+            <property name="primary">true</property>
             <property name="popover">
               <object class="GtkPopoverMenu">
                 <property name="menu-model">app_menu</property>
