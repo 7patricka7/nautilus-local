@@ -284,7 +284,6 @@ visit_directory (GFile            *dir,
     NautilusQuerySearchType type;
     NautilusQueryRecursive recursive_flag;
     GFileEnumerator *enumerator;
-    GFileInfo *info;
     GFile *child;
     const char *mime_type, *display_name;
     gdouble match;
@@ -315,7 +314,9 @@ visit_directory (GFile            *dir,
     recursive_flag = nautilus_query_get_recursive (data->query);
     date_range = nautilus_query_get_date_range (data->query);
 
-    while ((info = g_file_enumerator_next_file (enumerator, data->cancellable, NULL)) != NULL)
+    for (GFileInfo *info;
+         (info = g_file_enumerator_next_file (enumerator, data->cancellable, NULL)) != NULL;
+         g_object_unref (info))
     {
         g_autoptr (GDateTime) mtime = NULL;
         g_autoptr (GDateTime) atime = NULL;
@@ -325,7 +326,7 @@ visit_directory (GFile            *dir,
         display_name = g_file_info_get_display_name (info);
         if (display_name == NULL)
         {
-            goto next;
+            continue;
         }
 
         is_hidden = g_file_info_get_attribute_boolean (info,
@@ -334,7 +335,7 @@ visit_directory (GFile            *dir,
                                                        G_FILE_ATTRIBUTE_STANDARD_IS_BACKUP);
         if (is_hidden && !nautilus_query_get_show_hidden_files (data->query))
         {
-            goto next;
+            continue;
         }
 
         child = g_file_get_child (dir, g_file_info_get_name (info));
@@ -472,8 +473,6 @@ visit_directory (GFile            *dir,
         }
 
         g_object_unref (child);
-next:
-        g_object_unref (info);
     }
 
     g_object_unref (enumerator);

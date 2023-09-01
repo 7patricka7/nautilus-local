@@ -279,62 +279,6 @@ request_counter_remove_request (RequestCounter counter,
     }
 }
 
-#if 0
-static void
-nautilus_directory_verify_request_counts (NautilusDirectory *directory)
-{
-    GList *l;
-    RequestCounter counters;
-    int i;
-    gboolean fail;
-    GHashTableIter monitor_iter;
-    gpointer value;
-
-    fail = FALSE;
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        counters[i] = 0;
-    }
-    g_hash_table_iter_init (&monitor_iter, directory->details->monitor_table);
-    while (g_hash_table_iter_next (&monitor_iter, NULL, &value))
-    {
-        for (l = value; l; l = l->next)
-        {
-            Monitor *monitor = l->data;
-            request_counter_add_request (counters, monitor->request);
-        }
-    }
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        if (counters[i] != directory->details->monitor_counters[i])
-        {
-            g_warning ("monitor counter for %i is wrong, expecting %d but found %d",
-                       i, counters[i], directory->details->monitor_counters[i]);
-            fail = TRUE;
-        }
-    }
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        counters[i] = 0;
-    }
-    for (l = directory->details->call_when_ready_list; l != NULL; l = l->next)
-    {
-        ReadyCallback *callback = l->data;
-        request_counter_add_request (counters, callback->request);
-    }
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        if (counters[i] != directory->details->call_when_ready_counters[i])
-        {
-            g_warning ("call when ready counter for %i is wrong, expecting %d but found %d",
-                       i, counters[i], directory->details->call_when_ready_counters[i]);
-            fail = TRUE;
-        }
-    }
-    g_assert (!fail);
-}
-#endif
-
 /* Start a job. This is really just a way of limiting the number of
  * async. requests that we issue at any given time. Without this, the
  * number of requests is unbounded.
@@ -953,18 +897,14 @@ notify_files_changed_while_being_added (NautilusDirectory *directory)
 static gboolean
 dequeue_pending_idle_callback (gpointer callback_data)
 {
-    NautilusDirectory *directory;
-    GList *pending_file_info;
+    g_autoptr (NautilusDirectory) directory = nautilus_directory_ref (callback_data);
+    g_autolist (GFileInfo) pending_file_info;
     GList *node, *next;
     NautilusFile *file;
     GList *changed_files, *added_files;
     GFileInfo *file_info;
     const char *mimetype, *name;
     DirectoryLoadState *dir_load_state;
-
-    directory = NAUTILUS_DIRECTORY (callback_data);
-
-    nautilus_directory_ref (directory);
 
     nautilus_profile_start ("nitems %d", g_list_length (directory->details->pending_file_info));
 
@@ -978,7 +918,10 @@ dequeue_pending_idle_callback (gpointer callback_data)
     if (!nautilus_directory_is_file_list_monitored (directory))
     {
         nautilus_directory_async_state_changed (directory);
-        goto drain;
+
+        nautilus_profile_end (NULL);
+
+        return FALSE;
     }
 
     added_files = NULL;
@@ -1114,15 +1057,11 @@ dequeue_pending_idle_callback (gpointer callback_data)
      * See Bug 703179 and issue #1576 for a situation this happens. */
     notify_files_changed_while_being_added (directory);
 
-drain:
-    g_list_free_full (pending_file_info, g_object_unref);
-
     /* Get the state machine running again. */
     nautilus_directory_async_state_changed (directory);
 
     nautilus_profile_end (NULL);
 
-    nautilus_directory_unref (directory);
     return FALSE;
 }
 

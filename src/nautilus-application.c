@@ -583,38 +583,32 @@ static gboolean
 do_cmdline_sanity_checks (NautilusApplication *self,
                           GVariantDict        *options)
 {
-    gboolean retval = FALSE;
-
     if (g_variant_dict_contains (options, "check") &&
         (g_variant_dict_contains (options, G_OPTION_REMAINING) ||
          g_variant_dict_contains (options, "quit")))
     {
         g_printerr ("%s\n",
                     _("--check cannot be used with other options."));
-        goto out;
+        return FALSE;
     }
-
-    if (g_variant_dict_contains (options, "quit") &&
-        g_variant_dict_contains (options, G_OPTION_REMAINING))
+    else if (g_variant_dict_contains (options, "quit") &&
+             g_variant_dict_contains (options, G_OPTION_REMAINING))
     {
         g_printerr ("%s\n",
                     _("--quit cannot be used with URIs."));
-        goto out;
+        return FALSE;
     }
-
-
-    if (g_variant_dict_contains (options, "select") &&
-        !g_variant_dict_contains (options, G_OPTION_REMAINING))
+    else if (g_variant_dict_contains (options, "select") &&
+             !g_variant_dict_contains (options, G_OPTION_REMAINING))
     {
         g_printerr ("%s\n",
                     _("--select must be used with at least an URI."));
-        goto out;
+        return FALSE;
     }
-
-    retval = TRUE;
-
-out:
-    return retval;
+    else
+    {
+        return TRUE;
+    }
 }
 
 static int
@@ -941,32 +935,26 @@ nautilus_application_command_line (GApplication            *application,
         g_application_command_line_print (command_line,
                                           "GNOME nautilus " PACKAGE_VERSION "\n");
         retval = EXIT_SUCCESS;
-        goto out;
     }
-
-    if (!do_cmdline_sanity_checks (self, options))
+    else if (!do_cmdline_sanity_checks (self, options))
     {
         retval = EXIT_FAILURE;
-        goto out;
     }
-
-    if (g_variant_dict_contains (options, "check"))
+    else if (g_variant_dict_contains (options, "check"))
     {
         retval = do_perform_self_checks ();
-        goto out;
     }
-
-    if (g_variant_dict_contains (options, "quit"))
+    else if (g_variant_dict_contains (options, "quit"))
     {
         DEBUG ("Killing app, as requested");
         g_action_group_activate_action (G_ACTION_GROUP (application),
                                         "kill", NULL);
-        goto out;
+    }
+    else
+    {
+        retval = nautilus_application_handle_file_args (self, options);
     }
 
-    retval = nautilus_application_handle_file_args (self, options);
-
-out:
     nautilus_profile_end (NULL);
 
     return retval;

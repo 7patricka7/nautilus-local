@@ -228,17 +228,9 @@ get_native_icon (NautilusBookmark *bookmark,
     GUserDirectory xdg_type;
     GIcon *icon = NULL;
 
-    if (bookmark->file == NULL)
-    {
-        goto out;
-    }
-
-    if (!nautilus_bookmark_get_xdg_type (bookmark, &xdg_type))
-    {
-        goto out;
-    }
-
-    if (xdg_type < G_USER_N_DIRECTORIES)
+    if (bookmark->file != NULL &&
+        nautilus_bookmark_get_xdg_type (bookmark, &xdg_type) &&
+        xdg_type < G_USER_N_DIRECTORIES)
     {
         if (symbolic)
         {
@@ -250,7 +242,6 @@ get_native_icon (NautilusBookmark *bookmark,
         }
     }
 
-out:
     if (icon == NULL)
     {
         if (symbolic)
