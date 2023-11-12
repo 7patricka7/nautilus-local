@@ -25,7 +25,7 @@
 #include "nautilus-ui-utilities.h"
 #include "nautilus-global-preferences.h"
 
- #define SEARCH_FILTER_MAX_YEARS 5
+ #define SEARCH_FILTER_MAX_YEARS 3
 
 struct _NautilusSearchPopover
 {
@@ -63,6 +63,8 @@ static void          show_other_types_dialog (NautilusSearchPopover *popover);
 static void          update_date_label (NautilusSearchPopover *popover,
                                         GPtrArray             *date_range);
 
+static void toggle_calendar_icon_clicked (NautilusSearchPopover *popover);
+
 G_DEFINE_TYPE (NautilusSearchPopover, nautilus_search_popover, GTK_TYPE_POPOVER)
 
 enum
@@ -84,25 +86,103 @@ enum
 static guint signals[LAST_SIGNAL];
 
 
+static void
+mark_date_range (GtkCalendar *calendar,
+                 GDateTime   *beg,
+                 GDateTime   *end)
+{
+    g_autoptr (GDateTime) cal_date = gtk_calendar_get_date (calendar);
+    g_autoptr (GDateTime) cal_first_day = NULL;
+    g_autoptr (GDateTime) cal_last_day = NULL;
+    int day, last_day, cal_month, cal_year, days_in_month;
+
+    g_date_time_get_ymd (cal_date, &cal_year, &cal_month, NULL);
+    days_in_month = g_date_get_days_in_month (cal_month, cal_year);
+    cal_first_day = g_date_time_new_local (cal_year, cal_month, 1, 0, 0, 0);
+    cal_last_day = g_date_time_new_local (cal_year, cal_month, days_in_month, 0, 0, 0);
+
+    gtk_calendar_clear_marks (calendar);
+
+    if (g_date_time_compare (beg, cal_last_day) > 0 ||
+        g_date_time_compare (end, cal_first_day) < 0)
+    {
+        /* If the month is outside the range, just return */
+        return;
+    }
+
+    if (g_date_time_compare (cal_first_day, beg) > 0)
+    {
+        day = 1;
+    }
+    else
+    {
+        day = g_date_time_get_day_of_month (beg);
+    }
+
+    if (g_date_time_compare (end, cal_last_day) > 0)
+    {
+        last_day = 31;
+    }
+    else
+    {
+        last_day = g_date_time_get_day_of_month (end);
+    }
+
+    for (; day <= last_day; day++)
+    {
+        gtk_calendar_mark_day (calendar, day);
+    }
+}
+
 /* Callbacks */
 
 static void
 calendar_day_selected (GtkCalendar           *calendar,
                        NautilusSearchPopover *popover)
 {
-    GDateTime *date;
-    GPtrArray *date_range;
+    GDateTime *cur_date = NULL;
+    g_autoptr (GDateTime) new_date = NULL;
+    GPtrArray *cur_date_range;
+    g_autoptr (GPtrArray) new_date_range = NULL;
 
-    date = gtk_calendar_get_date (calendar);
+    cur_date_range = nautilus_query_get_date_range (popover->query);
+    if (cur_date_range != NULL && cur_date_range->len == 2)
+    {
+        cur_date = g_ptr_array_index (cur_date_range, 1);
+    }
 
-    date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
-    g_ptr_array_add (date_range, g_date_time_ref (date));
-    g_ptr_array_add (date_range, g_date_time_ref (date));
-    update_date_label (popover, date_range);
-    g_signal_emit_by_name (popover, "date-range", date_range);
+    new_date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
 
-    g_ptr_array_unref (date_range);
-    g_date_time_unref (date);
+    new_date = gtk_calendar_get_date (calendar);
+    if (cur_date == NULL ||
+        g_date_time_compare (new_date, cur_date) <= 0)
+    {
+        g_ptr_array_add (new_date_range, g_date_time_ref (new_date));
+    }
+    else
+    {
+        g_ptr_array_add (new_date_range, g_date_time_ref (g_ptr_array_index (cur_date_range, 0)));
+    }
+
+    g_ptr_array_add (new_date_range, g_date_time_ref (new_date));
+    update_date_label (popover, new_date_range);
+    mark_date_range (calendar, g_ptr_array_index (new_date_range, 0), new_date);
+
+    g_signal_emit_by_name (popover, "date-range", new_date_range);
+}
+
+static void
+calendar_visible_month_changed (GtkCalendar           *calendar,
+                                NautilusSearchPopover *popover)
+{
+    GPtrArray *date_range = nautilus_query_get_date_range (popover->query);
+
+    if (date_range == NULL)
+    {
+        return;
+    }
+
+    mark_date_range (calendar, g_ptr_array_index (date_range, 0), g_ptr_array_index (date_range, 1));
 }
 
 /* Range on dates are partially implemented. For now just use it for differentation
@@ -119,11 +199,13 @@ setup_date (NautilusSearchPopover *popover,
 
     if (date_range)
     {
+        GDateTime *date_end = g_ptr_array_index (date_range, 1);
         date_initial = g_ptr_array_index (date_range, 0);
 
         g_signal_handlers_block_by_func (popover->calendar, calendar_day_selected, popover);
 
-        gtk_calendar_select_day (GTK_CALENDAR (popover->calendar), date_initial);
+        mark_date_range (GTK_CALENDAR (popover->calendar), date_initial, date_end);
+        gtk_calendar_select_day (GTK_CALENDAR (popover->calendar), date_end);
 
         update_date_label (popover, date_range);
 
@@ -211,10 +293,14 @@ dates_listbox_row_activated (GtkListBox            *listbox,
         date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
         g_ptr_array_add (date_range, g_date_time_ref (date));
         g_ptr_array_add (date_range, g_date_time_ref (now));
+        update_date_label (popover, date_range);
+        show_date_selection_widgets (popover, FALSE);
+        g_signal_emit_by_name (popover, "date-range", date_range);
     }
-    update_date_label (popover, date_range);
-    show_date_selection_widgets (popover, FALSE);
-    g_signal_emit_by_name (popover, "date-range", date_range);
+    else
+    {
+        toggle_calendar_icon_clicked (popover);
+    }
 
     if (date_range)
     {
@@ -275,10 +361,9 @@ select_type_button_clicked (GtkButton             *button,
 }
 
 static void
-toggle_calendar_icon_clicked (GtkEntry              *entry,
-                              GtkEntryIconPosition   position,
-                              NautilusSearchPopover *popover)
+toggle_calendar_icon_clicked (NautilusSearchPopover *popover)
 {
+    GtkEntry *entry = GTK_ENTRY (popover->date_entry);
     const gchar *current_visible_child;
     const gchar *child;
     const gchar *icon_name;
@@ -414,10 +499,6 @@ fill_fuzzy_dates_listbox (NautilusSearchPopover *popover)
     now = g_date_time_new_now_local ();
     max_days = SEARCH_FILTER_MAX_YEARS * 365;
 
-    /* Add the no date filter element first */
-    row = create_row_for_label (_("Any time"), TRUE);
-    gtk_list_box_insert (GTK_LIST_BOX (popover->dates_listbox), row, -1);
-
     /* This is a tricky loop. The main intention here is that each
      * timeslice (day, week, month) have 2 or 3 entries.
      *
@@ -434,7 +515,7 @@ fill_fuzzy_dates_listbox (NautilusSearchPopover *popover)
         {
             /* days */
             normalized = days;
-            step = 2;
+            step = 4;
         }
         else if (days < 30)
         {
@@ -444,7 +525,7 @@ fill_fuzzy_dates_listbox (NautilusSearchPopover *popover)
             {
                 days = 7;
             }
-            step = 7;
+            step = 14;
         }
         else if (days < 365)
         {
@@ -454,7 +535,7 @@ fill_fuzzy_dates_listbox (NautilusSearchPopover *popover)
             {
                 days = 30;
             }
-            step = 90;
+            step = 175;
         }
         else
         {
@@ -464,7 +545,7 @@ fill_fuzzy_dates_listbox (NautilusSearchPopover *popover)
             {
                 days = 365;
             }
-            step = 365;
+            step = 730;
         }
 
         current_date = g_date_time_add_days (now, -days);
@@ -486,6 +567,10 @@ fill_fuzzy_dates_listbox (NautilusSearchPopover *popover)
 
         days += step;
     }
+
+    /* Add the no date filter element first */
+    row = create_row_for_label (_("Custom Dates"), TRUE);
+    gtk_list_box_insert (GTK_LIST_BOX (popover->dates_listbox), row, -1);
 
     g_date_time_unref (maximum_dt);
     g_date_time_unref (now);
@@ -762,6 +847,7 @@ nautilus_search_popover_closed (GtkPopover *popover)
     /* Reselect today at the calendar */
     g_signal_handlers_block_by_func (self->calendar, calendar_day_selected, self);
 
+    gtk_calendar_clear_marks (GTK_CALENDAR (self->calendar));
     gtk_calendar_select_day (GTK_CALENDAR (self->calendar), now);
 
     g_signal_handlers_unblock_by_func (self->calendar, calendar_day_selected, self);
@@ -929,6 +1015,7 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, filename_search_button);
 
     gtk_widget_class_bind_template_callback (widget_class, calendar_day_selected);
+    gtk_widget_class_bind_template_callback (widget_class, calendar_visible_month_changed);
     gtk_widget_class_bind_template_callback (widget_class, clear_date_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, date_entry_activate);
     gtk_widget_class_bind_template_callback (widget_class, dates_listbox_row_activated);
