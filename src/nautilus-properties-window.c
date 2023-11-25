@@ -2421,21 +2421,25 @@ static void
 setup_volume_information (NautilusPropertiesWindow *self)
 {
     NautilusFile *file;
-    const char *fs_type;
+    g_autofree gchar *fs_type = NULL;
     g_autofree gchar *uri = NULL;
     g_autoptr (GFile) location = NULL;
-    g_autoptr (GFileInfo) info = NULL;
 
     file = get_original_file (self);
 
     uri = nautilus_file_get_activation_uri (file);
 
     location = g_file_new_for_uri (uri);
-    info = g_file_query_filesystem_info (location, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE,
-                                         NULL, NULL);
-    if (info)
     {
-        fs_type = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE);
+        g_autoptr (GFileInfo) fs_info = g_file_query_filesystem_info (location,
+                                                                      G_FILE_ATTRIBUTE_FILESYSTEM_TYPE,
+                                                                      NULL, NULL);
+
+        if (fs_info != NULL)
+        {
+            fs_type = g_file_info_get_attribute_as_string (fs_info,
+                                                           G_FILE_ATTRIBUTE_FILESYSTEM_TYPE);
+        }
 
         /* We shouldn't be using filesystem::type, it's not meant for UI.
          * https://gitlab.gnome.org/GNOME/nautilus/-/issues/98
@@ -2443,23 +2447,23 @@ setup_volume_information (NautilusPropertiesWindow *self)
          * Until we fix that issue, workaround this common outrageous case. */
         if (g_strcmp0 (fs_type, "msdos") == 0)
         {
-            fs_type = "FAT";
+            fs_type = g_strdup ("FAT");
         }
+    }
 
-        if (fs_type != NULL)
+    if (fs_type != NULL)
+    {
+        /* Translators: %s will be filled with a filesystem type, such as 'ext4' or 'msdos'. */
+        g_autofree gchar *fs_label = g_strdup_printf (_("%s Filesystem"), fs_type);
+        gchar *cap_label = nautilus_capitalize_str (fs_label);
+        if (cap_label != NULL)
         {
-            /* Translators: %s will be filled with a filesystem type, such as 'ext4' or 'msdos'. */
-            g_autofree gchar *fs_label = g_strdup_printf (_("%s Filesystem"), fs_type);
-            gchar *cap_label = nautilus_capitalize_str (fs_label);
-            if (cap_label != NULL)
-            {
-                g_free (fs_label);
-                fs_label = cap_label;
-            }
-
-            gtk_label_set_text (self->type_file_system_label, fs_label);
-            gtk_widget_set_visible (GTK_WIDGET (self->type_file_system_label), TRUE);
+            g_free (fs_label);
+            fs_label = cap_label;
         }
+
+        gtk_label_set_text (self->type_file_system_label, fs_label);
+        gtk_widget_set_visible (GTK_WIDGET (self->type_file_system_label), TRUE);
     }
 }
 
