@@ -4737,7 +4737,6 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
     CommonJob *job;
     g_autoptr (GError) error = NULL;
     g_autoptr (GFileInfo) info = NULL;
-    gchar *primary, *secondary;
     GFile *dest = NULL;
 
     job = (CommonJob *) copy_job;
@@ -4745,23 +4744,13 @@ get_target_file_from_source_display_name (CopyMoveJob *copy_job,
     info = g_file_query_info (src, G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME, 0, NULL, &error);
     if (info == NULL)
     {
-        if (copy_job->is_move)
-        {
-            primary = g_strdup (_("Error while moving."));
-        }
-        else
-        {
-            primary = g_strdup (_("Error while copying."));
-        }
-        secondary = g_strdup (_("There was an error getting information about the source."));
+        const char *heading = copy_job->is_move ?
+                              _("Error while moving.") :
+                              _("Error while copying.");
 
-        run_error (job,
-                   primary,
-                   secondary,
-                   error->message,
-                   FALSE,
-                   CANCEL,
-                   NULL);
+        show_dialog (heading,
+                     error->message,
+                     job->parent_window);
 
         abort_job (job);
     }
