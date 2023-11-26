@@ -2481,17 +2481,20 @@ setup_volume_information (NautilusPropertiesWindow *self)
 
         if (fs_info != NULL)
         {
-            fs_type = g_file_info_get_attribute_as_string (fs_info,
-                                                           G_FILE_ATTRIBUTE_FILESYSTEM_TYPE);
-        }
+            const char *gio_fs_type = g_file_info_get_attribute_string (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE);
 
-        /* We shouldn't be using filesystem::type, it's not meant for UI.
-         * https://gitlab.gnome.org/GNOME/nautilus/-/issues/98
-         *
-         * Until we fix that issue, workaround this common outrageous case. */
-        if (g_strcmp0 (fs_type, "msdos") == 0)
-        {
-            fs_type = g_strdup ("FAT");
+            /* We shouldn't be using filesystem::type, it's not meant for UI.
+             * https://gitlab.gnome.org/GNOME/nautilus/-/issues/98
+             *
+             * Until we fix that issue, workaround this common outrageous case. */
+            if (g_str_equal (gio_fs_type, "msdos"))
+            {
+                fs_type = g_strdup ("FAT");
+            }
+            else
+            {
+                fs_type = nautilus_capitalize_str (gio_fs_type);
+            }
         }
     }
 
@@ -2499,12 +2502,6 @@ setup_volume_information (NautilusPropertiesWindow *self)
     {
         /* Translators: %s will be filled with a filesystem type, such as 'ext4' or 'msdos'. */
         g_autofree gchar *fs_label = g_strdup_printf (_("%s Filesystem"), fs_type);
-        gchar *cap_label = nautilus_capitalize_str (fs_label);
-        if (cap_label != NULL)
-        {
-            g_free (fs_label);
-            fs_label = cap_label;
-        }
 
         gtk_label_set_text (self->type_file_system_label, fs_label);
         gtk_widget_set_visible (GTK_WIDGET (self->type_file_system_label), TRUE);
