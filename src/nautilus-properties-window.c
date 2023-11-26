@@ -2500,7 +2500,7 @@ setup_volume_information (NautilusPropertiesWindow *self)
 
     if (fs_type != NULL)
     {
-        /* Translators: %s will be filled with a filesystem type, such as 'ext4' or 'msdos'. */
+        /* Translators: %s will be filled with a filesystem type, such as 'Ext4' or 'FAT'. */
         g_autofree gchar *fs_label = g_strdup_printf (_("%s Filesystem"), fs_type);
 
         gtk_label_set_text (self->type_file_system_label, fs_label);
