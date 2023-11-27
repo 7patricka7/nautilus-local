@@ -804,9 +804,9 @@ do_run_simple_dialog (gpointer _data)
 
 static NautilusDialogResponse
 run_dialog (CommonJob              *job,
-            char                   *primary_text,
-            char                   *secondary_text,
-            const char             *details_text,
+            const char             *heading,
+            const char             *body,
+            const char             *details,
             NautilusDialogResponse  responses)
 {
     g_timer_stop (job->time);
@@ -815,9 +815,9 @@ run_dialog (CommonJob              *job,
     {
         .parent_window = job->parent_window,
         .dbus_data = job->dbus_data,
-        .heading = primary_text,
-        .body = secondary_text,
-        .details = details_text,
+        .heading = heading,
+        .body = body,
+        .details = details,
         .responses = responses,
         .delay_interactivity = is_long_job (job),
         .completed = FALSE
@@ -846,18 +846,15 @@ run_dialog (CommonJob              *job,
 
     g_timer_continue (job->time);
 
-    g_free (primary_text);
-    g_free (secondary_text);
-
     return data->result;
 }
 
 /** Returns: Whether skip was chosen. */
 static gboolean
 show_skip_dialog (CommonJob  *job,
-                  char       *primary_text,
-                  char       *secondary_text,
-                  const char *details_text,
+                  const char *heading,
+                  const char *body,
+                  const char *details,
                   int         total_operations,
                   gboolean    show_all)
 {
@@ -869,9 +866,9 @@ show_skip_dialog (CommonJob  *job,
     }
 
     NautilusDialogResponse response = run_dialog (job,
-                                                  primary_text,
-                                                  secondary_text,
-                                                  details_text,
+                                                  heading,
+                                                  body,
+                                                  details,
                                                   responses);
 
     if (response == RESPONSE_CANCEL)
@@ -925,7 +922,7 @@ static gboolean
 confirm_delete_from_trash (CommonJob *job,
                            GList     *files)
 {
-    char *prompt;
+    g_autofree char *prompt = NULL;
     int file_count;
     int response;
 
@@ -952,7 +949,7 @@ confirm_delete_from_trash (CommonJob *job,
 
     response = run_dialog (job,
                            prompt,
-                           g_strdup (_("If you delete an item, it will be permanently lost.")),
+                           _("If you delete an item, it will be permanently lost."),
                            NULL,
                            RESPONSE_DELETE);
 
@@ -962,14 +959,11 @@ confirm_delete_from_trash (CommonJob *job,
 static gboolean
 confirm_empty_trash (CommonJob *job)
 {
-    char *prompt;
     int response;
 
-    prompt = g_strdup (_("Empty all items from Trash?"));
-
     response = run_dialog (job,
-                           prompt,
-                           g_strdup (_("All items in the Trash will be permanently deleted.")),
+                           _("Empty all items from Trash?"),
+                           _("All items in the Trash will be permanently deleted."),
                            NULL,
                            RESPONSE_EMPTY_TRASH);
 
@@ -980,7 +974,7 @@ static gboolean
 confirm_delete_directly (CommonJob *job,
                          GList     *files)
 {
-    char *prompt;
+    g_autofree char *prompt = NULL;
     int file_count;
     int response;
 
@@ -1011,7 +1005,7 @@ confirm_delete_directly (CommonJob *job,
 
     response = run_dialog (job,
                            prompt,
-                           g_strdup (_("If you delete an item, it will be permanently lost.")),
+                           _("If you delete an item, it will be permanently lost."),
                            NULL,
                            RESPONSE_DELETE);
 
@@ -1279,8 +1273,8 @@ file_deleted_callback (GFile    *file,
     CommonJob *job;
     SourceInfo *source_info;
     TransferInfo *transfer_info;
-    char *primary;
-    char *secondary;
+    const char *primary;
+    g_autofree char *secondary;
     char *details = NULL;
     g_autofree gchar *basename = NULL;
 
@@ -1306,7 +1300,7 @@ file_deleted_callback (GFile    *file,
         return;
     }
 
-    primary = g_strdup (_("Error while deleting."));
+    primary = _("Error while deleting.");
 
     basename = get_basename (file);
 
@@ -1573,7 +1567,10 @@ trash_file (CommonJob     *job,
             GList        **to_delete)
 {
     GError *error;
-    char *primary, *secondary, *details;
+
+    g_autofree char *primary = NULL;
+    const char *secondary = NULL;
+    const char *details = NULL;
     int response;
     g_autofree gchar *basename = NULL;
 
@@ -1617,15 +1614,13 @@ trash_file (CommonJob     *job,
                                  "to delete it immediately?"),
                                basename);
 
-    details = NULL;
-    secondary = NULL;
     if (!IS_IO_ERROR (error, NOT_SUPPORTED))
     {
         details = error->message;
     }
     else if (!g_file_is_native (file))
     {
-        secondary = g_strdup (_("This remote location does not support sending items to the trash."));
+        secondary = _("This remote location does not support sending items to the trash.");
     }
 
     NautilusDialogResponse responses = RESPONSE_SKIP | RESPONSE_DELETE;
@@ -2615,7 +2610,6 @@ scan_dir (GFile      *dir,
     GError *error;
     GFile *subdir;
     GFileEnumerator *enumerator;
-    char *primary, *secondary, *details;
     int response;
     SourceInfo saved_info;
     g_autolist (GFile) subdirs = NULL;
@@ -2685,9 +2679,10 @@ retry:
         else if (error)
         {
             g_autofree gchar *basename = NULL;
+            g_autofree gchar *primary = get_scan_primary (source_info->op);
+            g_autofree gchar *secondary = NULL;
+            const char *details = NULL;
 
-            primary = get_scan_primary (source_info->op);
-            details = NULL;
             basename = get_basename (dir);
 
             if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -2745,9 +2740,10 @@ retry:
     else
     {
         g_autofree gchar *basename = NULL;
+        g_autofree gchar *primary = get_scan_primary (source_info->op);
+        g_autofree gchar *secondary = NULL;
+        const char *details = NULL;
 
-        primary = get_scan_primary (source_info->op);
-        details = NULL;
         basename = get_basename (dir);
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -2818,9 +2814,6 @@ scan_file (GFile      *file,
     GError *error;
     GQueue *dirs;
     GFile *dir;
-    char *primary;
-    char *secondary;
-    char *details;
     int response;
 
     dirs = g_queue_new ();
@@ -2858,9 +2851,10 @@ retry:
     else
     {
         g_autofree gchar *basename = NULL;
+        g_autofree gchar *primary = get_scan_primary (source_info->op);
+        g_autofree gchar *secondary = NULL;
+        const char *details = NULL;
 
-        primary = get_scan_primary (source_info->op);
-        details = NULL;
         basename = get_basename (file);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -2960,7 +2954,6 @@ verify_destination (CommonJob   *job,
     const char *fs_type;
     guint64 free_size;
     guint64 size_difference;
-    char *primary, *secondary, *details;
     int response;
     GFileType file_type;
     gboolean dest_is_symlink = FALSE;
@@ -2983,25 +2976,24 @@ retry:
 
     if (info == NULL)
     {
-        g_autofree gchar *basename = NULL;
-
         if (IS_IO_ERROR (error, CANCELLED))
         {
             g_error_free (error);
             return;
         }
 
-        basename = get_basename (dest);
-        primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
-        details = NULL;
+        g_autofree gchar *basename = get_basename (dest);
+        g_autofree gchar *primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
+        const char *secondary;
+        const char *details = NULL;
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
-            secondary = g_strdup (_("You do not have permissions to access the destination folder."));
+            secondary = _("You do not have permissions to access the destination folder.");
         }
         else
         {
-            secondary = g_strdup (_("There was an error getting information about the destination."));
+            secondary = _("There was an error getting information about the destination.");
             details = error->message;
         }
 
@@ -3096,14 +3088,14 @@ retry:
 
         if (free_size < (guint64) required_size)
         {
-            g_autofree gchar *basename = NULL;
+            g_autofree gchar *basename = get_basename (dest);
             g_autofree gchar *formatted_size = NULL;
+            g_autofree gchar *primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
+            const char *secondary;
+            g_autofree char *details = NULL;
 
-            basename = get_basename (dest);
             size_difference = required_size - free_size;
-            primary = g_strdup_printf (_("Error while copying to “%s”."), basename);
-            secondary = g_strdup (_("There is not enough space on the destination."
-                                    " Try to remove files to make space."));
+            secondary = _("There is not enough space on the destination. Try to remove files to make space.");
 
             formatted_size = g_format_size (size_difference);
             details = g_strdup_printf (_("%s more space is required to copy to the destination."),
@@ -3138,11 +3130,10 @@ retry:
         source_info != NULL && source_info->largest_file_bytes > G_MAXUINT32 &&
         g_strcmp0 (fs_type, "msdos") == 0)
     {
-        primary = g_strdup (_("File too Large for Destination"));
-        secondary = g_strdup (_("Files bigger than 4.3 GB cannot be copied onto a FAT filesystem."));
-        details = NULL;
         response = run_dialog (job,
-                               primary, secondary, details,
+                               _("File too Large for Destination"),
+                               _("Files bigger than 4.3 GB cannot be copied onto a FAT filesystem."),
+                               NULL,
                                RESPONSE_PROCEED);
 
         if (response == RESPONSE_CANCEL)
@@ -3933,7 +3924,6 @@ create_dest_dir (CommonJob  *job,
 {
     GError *error;
     GFile *new_dest, *dest_dir;
-    char *primary, *secondary, *details;
     int response;
     gboolean handled_invalid_filename;
     gboolean res;
@@ -3965,8 +3955,6 @@ retry:
 
     if (!res)
     {
-        g_autofree gchar *basename = NULL;
-
         if (IS_IO_ERROR (error, CANCELLED))
         {
             g_error_free (error);
@@ -4002,9 +3990,9 @@ retry:
             }
         }
 
-        primary = g_strdup (_("Error while copying."));
-        details = NULL;
-        basename = get_basename (src);
+        g_autofree char *secondary = NULL;
+        const char *details = NULL;
+        g_autofree gchar *basename = get_basename (src);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
         {
@@ -4020,7 +4008,7 @@ retry:
         }
 
         response = run_dialog (job,
-                               primary,
+                               _("Error while copying."),
                                secondary,
                                details,
                                RESPONSE_SKIP | RESPONSE_RETRY);
@@ -4080,7 +4068,6 @@ copy_move_directory (CopyMoveJob   *copy_job,
     GError *error;
     GFile *src_file;
     GFileEnumerator *enumerator;
-    char *primary, *secondary, *details;
     char *dest_fs_type;
     int response;
     gboolean skip_error;
@@ -4185,16 +4172,18 @@ retry:
         else if (error)
         {
             g_autofree gchar *basename = NULL;
+            const char *primary;
+            g_autofree char *secondary = NULL;
+            const char *details = NULL;
 
             if (copy_job->is_move)
             {
-                primary = g_strdup (_("Error while moving."));
+                primary = _("Error while moving.");
             }
             else
             {
-                primary = g_strdup (_("Error while copying."));
+                primary = _("Error while copying.");
             }
-            details = NULL;
             basename = get_basename (src);
 
             if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -4265,16 +4254,18 @@ retry:
     else
     {
         g_autofree gchar *basename = NULL;
+        const char *primary;
+        g_autofree char *secondary = NULL;
+        const char *details = NULL;
 
         if (copy_job->is_move)
         {
-            primary = g_strdup (_("Error while moving."));
+            primary = _("Error while moving.");
         }
         else
         {
-            primary = g_strdup (_("Error while copying."));
+            primary = _("Error while copying.");
         }
-        details = NULL;
         basename = get_basename (src);
 
         if (IS_IO_ERROR (error, PERMISSION_DENIED))
@@ -4334,17 +4325,16 @@ retry:
     {
         if (!g_file_delete (src, job->cancellable, &error))
         {
-            g_autofree gchar *basename = NULL;
-
             if (job->skip_all_error)
             {
                 *skipped_file = TRUE;
                 goto skip;
             }
-            basename = get_basename (src);
-            primary = g_strdup_printf (_("Error while moving “%s”."), basename);
-            secondary = g_strdup (_("Could not remove the source folder."));
-            details = error->message;
+
+            g_autofree gchar *basename = get_basename (src);
+            g_autofree char *primary = g_strdup_printf (_("Error while moving “%s”."), basename);
+            const char *secondary = _("Could not remove the source folder.");
+            const char *details = error->message;
 
             gboolean skip = show_skip_dialog (job,
                                               primary,
@@ -4571,7 +4561,6 @@ copy_move_file (CopyMoveJob   *copy_job,
     g_autofree gchar *dest_uri = NULL;
     GError *error;
     GFileCopyFlags flags;
-    char *primary, *secondary, *details;
     ProgressData pdata;
     gboolean would_recurse;
     CommonJob *job;
@@ -4630,9 +4619,10 @@ copy_move_file (CopyMoveJob   *copy_job,
             goto out;
         }
 
-        primary = copy_job->is_move ? g_strdup (_("You cannot move a folder into itself."))
-                  : g_strdup (_("You cannot copy a folder into itself."));
-        secondary = g_strdup (_("The destination folder is inside the source folder."));
+        const char *primary = copy_job->is_move ?
+                              _("You cannot move a folder into itself.") :
+                              _("You cannot copy a folder into itself.");
+        const char *secondary = _("The destination folder is inside the source folder.");
 
         show_skip_dialog (job,
                           primary,
@@ -4653,9 +4643,10 @@ copy_move_file (CopyMoveJob   *copy_job,
             goto out;
         }
 
-        primary = copy_job->is_move ? g_strdup (_("You cannot move a file over itself."))
-                  : g_strdup (_("You cannot copy a file over itself."));
-        secondary = g_strdup (_("The source file would be overwritten by the destination."));
+        const char *primary = copy_job->is_move ?
+                              _("You cannot move a file over itself.") :
+                              _("You cannot copy a file over itself.");
+        const char *secondary = _("The source file would be overwritten by the destination.");
 
         show_skip_dialog (job,
                           primary,
@@ -4896,16 +4887,18 @@ retry:
             if (!g_file_delete (dest, job->cancellable, &error) &&
                 !IS_IO_ERROR (error, NOT_FOUND))
             {
-                g_autofree gchar *basename = NULL;
-                g_autofree gchar *filename = NULL;
-
                 if (job->skip_all_error)
                 {
                     g_error_free (error);
                     goto out;
                 }
 
-                basename = get_basename (src);
+                g_autofree gchar *basename = get_basename (src);
+                g_autofree gchar *filename = NULL;
+                g_autofree char *primary = NULL;
+                g_autofree char *secondary = NULL;
+                const char *details = NULL;
+
                 if (copy_job->is_move)
                 {
                     primary = g_strdup_printf (_("Error while moving “%s”."), basename);
@@ -4974,20 +4967,18 @@ retry:
     /* Other error */
     else
     {
-        g_autofree gchar *basename = NULL;
-        g_autofree gchar *filename = NULL;
-
         if (job->skip_all_error)
         {
             g_error_free (error);
             goto out;
         }
-        basename = get_basename (src);
-        primary = g_strdup_printf (_("Error while copying “%s”."), basename);
-        filename = get_truncated_parse_name (dest_dir);
-        secondary = g_strdup_printf (_("There was an error copying the file into %s."),
-                                     filename);
-        details = error->message;
+
+        g_autofree gchar *basename = get_basename (src);
+        g_autofree gchar *filename = get_truncated_parse_name (dest_dir);
+        g_autofree char *primary = g_strdup_printf (_("Error while copying “%s”."), basename);
+        g_autofree char *secondary = g_strdup_printf (_("There was an error copying the file into %s."),
+                                                      filename);
+        const char *details = error->message;
 
         show_skip_dialog (job,
                           primary,
@@ -5340,7 +5331,6 @@ move_file_prepare (CopyMoveJob  *move_job,
     GError *error;
     CommonJob *job;
     gboolean overwrite;
-    char *primary, *secondary, *details;
     GFileCopyFlags flags;
     MoveFileCopyFallback *fallback;
     gboolean handled_invalid_filename;
@@ -5375,10 +5365,10 @@ move_file_prepare (CopyMoveJob  *move_job,
             goto out;
         }
 
-        /*  the run_dialog() frees all strings passed in automatically  */
-        primary = move_job->is_move ? g_strdup (_("You cannot move a folder into itself."))
-                  : g_strdup (_("You cannot copy a folder into itself."));
-        secondary = g_strdup (_("The destination folder is inside the source folder."));
+        const char *primary = move_job->is_move ?
+                              _("You cannot move a folder into itself.") :
+                              _("You cannot copy a folder into itself.");
+        const char *secondary = _("The destination folder is inside the source folder.");
 
         show_skip_dialog (job,
                           primary,
@@ -5399,10 +5389,10 @@ move_file_prepare (CopyMoveJob  *move_job,
             goto out;
         }
 
-        /*  the run_dialog() frees all strings passed in automatically  */
-        primary = move_job->is_move ? g_strdup (_("You cannot move a file over itself."))
-                  : g_strdup (_("You cannot copy a file over itself."));
-        secondary = g_strdup (_("The source file would be overwritten by the destination."));
+        const char *primary = move_job->is_move ?
+                              _("You cannot move a file over itself.") :
+                              _("You cannot copy a file over itself.");
+        const char *secondary = _("The source file would be overwritten by the destination.");
 
         show_skip_dialog (job,
                           primary,
@@ -5571,21 +5561,18 @@ retry:
     /* Other error */
     else
     {
-        g_autofree gchar *basename = NULL;
-        g_autofree gchar *filename = NULL;
-
         if (job->skip_all_error)
         {
             g_error_free (error);
             goto out;
         }
-        basename = get_basename (src);
-        primary = g_strdup_printf (_("Error while moving “%s”."), basename);
-        filename = get_truncated_parse_name (dest_dir);
-        secondary = g_strdup_printf (_("There was an error moving the file into %s."),
-                                     filename);
 
-        details = error->message;
+        g_autofree gchar *basename = get_basename (src);
+        g_autofree gchar *filename = get_truncated_parse_name (dest_dir);
+        g_autofree char *primary = g_strdup_printf (_("Error while moving “%s”."), basename);
+        g_autofree char *secondary = g_strdup_printf (_("There was an error moving the file into %s."),
+                                                      filename);
+        const char *details = error->message;
 
         show_skip_dialog (job,
                           primary,
@@ -5975,7 +5962,6 @@ link_file (CopyMoveJob  *job,
     gboolean not_local;
     GError *error;
     CommonJob *common;
-    char *primary, *secondary, *details;
     gboolean handled_invalid_filename;
 
     common = (CommonJob *) job;
@@ -6065,24 +6051,24 @@ retry:
     /* Other error */
     else if (error != NULL)
     {
-        g_autofree gchar *basename = NULL;
-
         if (common->skip_all_error)
         {
             return;
         }
-        basename = get_basename (src);
-        primary = g_strdup_printf (_("Error while creating link to %s."),
-                                   basename);
+
+        g_autofree gchar *basename = get_basename (src);
+        g_autofree char *primary = g_strdup_printf (_("Error while creating link to %s."),
+                                                    basename);
+        g_autofree char *secondary = NULL;
+        const char *details = NULL;
+
         if (not_local)
         {
             secondary = g_strdup (_("Symbolic links only supported for local files"));
-            details = NULL;
         }
         else if (IS_IO_ERROR (error, NOT_SUPPORTED))
         {
             secondary = g_strdup (_("The target doesn’t support symbolic links."));
-            details = NULL;
         }
         else
         {
@@ -6658,7 +6644,6 @@ create_task_thread_func (GTask        *task,
     GError *error;
     gboolean res;
     gboolean filename_is_utf8;
-    char *primary, *secondary, *details;
     char *data;
     gsize length;
     GFileOutputStream *out;
@@ -6928,10 +6913,12 @@ retry:
         /* Other error */
         else
         {
-            g_autofree gchar *basename = NULL;
+            g_autofree gchar *basename = get_basename (dest);
             g_autofree gchar *parse_name = NULL;
+            g_autofree char *primary = NULL;
+            g_autofree char *secondary = NULL;
+            const char *details = error->message;
 
-            basename = get_basename (dest);
             if (job->make_dir)
             {
                 primary = g_strdup_printf (_("Error while creating directory %s."),
@@ -6945,8 +6932,6 @@ retry:
             parse_name = get_truncated_parse_name (job->dest_dir);
             secondary = g_strdup_printf (_("There was an error creating the directory in %s."),
                                          parse_name);
-
-            details = error->message;
 
             show_skip_dialog (common,
                               primary,
@@ -7573,6 +7558,7 @@ extract_job_on_error (AutoarExtractor *extractor,
     GFile *destination;
     gint remaining_files;
     g_autofree gchar *basename = NULL;
+    g_autofree gchar *heading = NULL;
 
     source_file = autoar_extractor_get_source_file (extractor);
 
@@ -7612,10 +7598,13 @@ extract_job_on_error (AutoarExtractor *extractor,
     remaining_files = g_list_length (g_list_find_custom (extract_job->source_files,
                                                          source_file,
                                                          (GCompareFunc) g_file_equal)) - 1;
+
+    heading = g_strdup_printf (_("There was an error while extracting “%s”."),
+                               basename),
+
     show_skip_dialog ((CommonJob *) extract_job,
-                      g_strdup_printf (_("There was an error while extracting “%s”."),
-                                       basename),
-                      g_strdup (error->message),
+                      heading,
+                      error->message,
                       NULL,
                       extract_job->total_files,
                       remaining_files > 1);
