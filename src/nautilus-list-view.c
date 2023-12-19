@@ -56,6 +56,9 @@ G_DEFINE_TYPE (NautilusListView, nautilus_list_view, NAUTILUS_TYPE_LIST_BASE)
 #define get_view_item(cell) \
         (NAUTILUS_VIEW_ITEM (gtk_tree_list_row_get_item (GTK_TREE_LIST_ROW (gtk_column_view_cell_get_item (cell)))))
 
+static GStrv get_columns_from_view (NautilusListView *self,
+                                    gboolean          visible_only);
+
 static guint
 get_icon_size_for_zoom_level (NautilusListZoomLevel zoom_level)
 {
@@ -99,6 +102,37 @@ real_get_view_ui (NautilusListBase *list_base_view)
 }
 
 static void
+columns_items_changed (GListModel *self,
+                       guint       position,
+                       guint       removed,
+                       guint       added,
+                       gpointer    user_data)
+{
+    NautilusFile *file;
+    NautilusListView *view = user_data;
+    g_auto (GStrv) column_order = NULL;
+    g_auto (GStrv) new_column_order = get_columns_from_view (view, FALSE);
+    g_auto (GStrv) new_visible_order = NULL;
+
+    file = nautilus_files_view_get_directory_as_file (NAUTILUS_FILES_VIEW (view));
+    column_order = nautilus_column_get_column_order (file);
+
+    if (g_strv_equal ((const gchar * const *) column_order, (const gchar * const *) new_column_order))
+    {
+        return;
+    }
+
+    new_visible_order = get_columns_from_view (view, TRUE);
+
+    nautilus_file_set_metadata_list (file,
+                                     NAUTILUS_METADATA_KEY_LIST_VIEW_COLUMN_ORDER,
+                                     new_column_order);
+    nautilus_file_set_metadata_list (file,
+                                     NAUTILUS_METADATA_KEY_LIST_VIEW_VISIBLE_COLUMNS,
+                                     new_visible_order);
+}
+
+static void
 apply_columns_settings (NautilusListView  *self,
                         char             **column_order,
                         char             **visible_columns)
@@ -107,7 +141,6 @@ apply_columns_settings (NautilusListView  *self,
     NautilusFile *file;
     NautilusDirectory *directory;
     g_autoptr (GFile) location = NULL;
-    g_autoptr (GList) view_columns = NULL;
     GListModel *old_view_columns;
     g_autoptr (GHashTable) visible_columns_hash = NULL;
     g_autoptr (GHashTable) old_view_columns_hash = NULL;
@@ -174,48 +207,31 @@ apply_columns_settings (NautilusListView  *self,
         g_hash_table_insert (old_view_columns_hash, name, view_column);
     }
 
-    for (GList *l = all_columns; l != NULL; l = l->next)
+    for (GList *l = all_columns; l != NULL; l = l->next, column_i++)
     {
+        gboolean visible;
         g_autofree char *name = NULL;
         g_autofree char *lowercase = NULL;
+        GtkColumnViewColumn *view_column;
 
         g_object_get (G_OBJECT (l->data), "name", &name, NULL);
         lowercase = g_ascii_strdown (name, -1);
-
-        if (g_hash_table_lookup (visible_columns_hash, lowercase) != NULL)
+        view_column = g_hash_table_lookup (old_view_columns_hash, name);
+        if (view_column == NULL)
         {
-            GtkColumnViewColumn *view_column;
-
-            view_column = g_hash_table_lookup (old_view_columns_hash, name);
-            if (view_column != NULL)
-            {
-                view_columns = g_list_prepend (view_columns, view_column);
-            }
+            continue;
         }
-    }
 
-    view_columns = g_list_reverse (view_columns);
+        g_signal_handlers_block_by_func (gtk_column_view_get_columns (self->view_ui),
+                                         G_CALLBACK (columns_items_changed), self);
 
-    /* hide columns that are not present in the configuration */
-    for (guint i = 0; i < g_list_model_get_n_items (old_view_columns); i++)
-    {
-        g_autoptr (GtkColumnViewColumn) view_column = NULL;
+        gtk_column_view_insert_column (self->view_ui, column_i, view_column);
 
-        view_column = g_list_model_get_item (old_view_columns, i);
-        if (g_list_find (view_columns, view_column) == NULL)
-        {
-            gtk_column_view_column_set_visible (view_column, FALSE);
-        }
-        else
-        {
-            gtk_column_view_column_set_visible (view_column, TRUE);
-        }
-    }
+        visible = g_hash_table_contains (visible_columns_hash, lowercase);
+        gtk_column_view_column_set_visible (view_column, visible);
 
-    /* place columns in the correct order */
-    for (GList *l = view_columns; l != NULL; l = l->next, column_i++)
-    {
-        gtk_column_view_insert_column (self->view_ui, column_i, l->data);
+        g_signal_handlers_unblock_by_func (gtk_column_view_get_columns (self->view_ui),
+                                           G_CALLBACK (columns_items_changed), self);
     }
 }
 
@@ -274,6 +290,84 @@ sort_directories_func (gconstpointer a,
         }
     }
     return GTK_ORDERING_EQUAL;
+}
+
+static GStrv
+get_columns_from_view (NautilusListView *self,
+                       gboolean          visible_only)
+{
+    g_autoptr (GStrvBuilder) builder = g_strv_builder_new ();
+    GListModel *columns = gtk_column_view_get_columns (self->view_ui);
+    for (guint i = 0; i < g_list_model_get_n_items (columns); i++)
+    {
+        g_autoptr (GtkColumnViewColumn) column = g_list_model_get_item (columns, i);
+
+        if (!visible_only || gtk_column_view_column_get_visible (column))
+        {
+            g_strv_builder_add (builder, gtk_column_view_column_get_id (column));
+        }
+    }
+    return g_strv_builder_end (builder);
+}
+
+static gboolean
+is_default_column_in_header_menu (const char *name)
+{
+    if (g_strcmp0 (name, "type") == 0 || g_strcmp0 (name, "date_modified") == 0 ||
+        g_strcmp0 (name, "size") == 0 || g_strcmp0 (name, "date_created") == 0 ||
+        g_strcmp0 (name, "name") == 0 || g_strcmp0 (name, "starred") == 0)
+    {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+static void
+column_visible_changed (GObject    *object,
+                        GParamSpec *pspec,
+                        gpointer    user_data)
+{
+    GtkColumnViewColumn *column = GTK_COLUMN_VIEW_COLUMN (object);
+    NautilusListView *self = user_data;
+    g_autofree char *action_name = NULL;
+    g_auto (GStrv) visible_columns = NULL;
+    const char *column_name = gtk_column_view_column_get_id (column);
+    gboolean is_visible = gtk_column_view_column_get_visible (column);
+    NautilusFile *file;
+    file = nautilus_files_view_get_directory_as_file (NAUTILUS_FILES_VIEW (self));
+    visible_columns = nautilus_column_get_visible_columns (file);
+
+    if (is_visible != g_strv_contains ((const gchar * const *) visible_columns, column_name))
+    {
+        g_auto (GStrv) new_visible_columns = get_columns_from_view (self, TRUE);
+        nautilus_file_set_metadata_list (file,
+                                         NAUTILUS_METADATA_KEY_LIST_VIEW_VISIBLE_COLUMNS,
+                                         new_visible_columns);
+    }
+
+    /* Default columns are always visible. */
+    if (is_default_column_in_header_menu (column_name))
+    {
+        return;
+    }
+
+    /* Besides the "default" columns, we only want to show column names in the
+     * header menu, if they are currently visible (so they can be hidden).
+     * We do this by removing or adding the action respectively.
+     */
+    action_name = g_strdup_printf ("show-column-%s", column_name);
+
+    if (!is_visible)
+    {
+        g_action_map_remove_action (G_ACTION_MAP (self->action_group), action_name);
+    }
+    else if (g_action_map_lookup_action (G_ACTION_MAP (self->action_group), action_name) == NULL)
+    {
+        g_autoptr (GAction) action = NULL;
+        action = G_ACTION (g_property_action_new (action_name, column, "visible"));
+        g_action_map_add_action (G_ACTION_MAP (self->action_group), action);
+    }
 }
 
 static void
@@ -1089,7 +1183,10 @@ setup_view_columns (NautilusListView *self)
 {
     GtkListItemFactory *factory;
     g_autolist (NautilusColumn) nautilus_columns = NULL;
+    g_autoptr (GMenu) menu = NULL;
+    g_autoptr (GMenu) section = NULL;
 
+    menu = g_menu_new ();
     nautilus_columns = nautilus_get_all_columns ();
 
     self->factory_to_column_map = g_hash_table_new_full (g_direct_hash,
@@ -1106,6 +1203,10 @@ setup_view_columns (NautilusListView *self)
         GtkSortType sort_order;
         g_autoptr (GtkCustomSorter) sorter = NULL;
         g_autoptr (GtkColumnViewColumn) view_column = NULL;
+        g_autoptr (GAction) action = NULL;
+        g_autofree char *action_name = NULL;
+        g_autofree char *detailed_action_name = NULL;
+        g_autoptr (GMenuItem) menu_item = NULL;
 
         g_object_get (nautilus_column,
                       "name", &name,
@@ -1124,6 +1225,9 @@ setup_view_columns (NautilusListView *self)
         gtk_column_view_column_set_resizable (view_column, TRUE);
         gtk_column_view_column_set_title (view_column, label);
         gtk_column_view_column_set_sorter (view_column, GTK_SORTER (sorter));
+        gtk_column_view_column_set_id (view_column, name);
+        gtk_column_view_column_set_visible (view_column, FALSE);
+        gtk_column_view_column_set_header_menu (view_column, G_MENU_MODEL (menu));
 
         if (!strcmp (name, "name"))
         {
@@ -1147,13 +1251,37 @@ setup_view_columns (NautilusListView *self)
             g_signal_connect (factory, "setup", G_CALLBACK (setup_label_cell), self);
         }
 
+        action_name = g_strdup_printf ("show-column-%s", name);
+        detailed_action_name = g_strdup_printf ("view.%s", action_name);
+
+        if (is_default_column_in_header_menu (name))
+        {
+            action = G_ACTION (g_property_action_new (action_name, view_column, "visible"));
+            g_action_map_add_action (G_ACTION_MAP (self->action_group), action);
+        }
+
+        if (g_strcmp0 (name, "name") != 0 && g_strcmp0 (name, "starred") != 0)
+        {
+            menu_item = g_menu_item_new (label, detailed_action_name);
+            g_menu_item_set_attribute (menu_item, "hidden-when", "s", "action-missing");
+            g_menu_append_item (G_MENU (menu), menu_item);
+        }
+
         gtk_column_view_append_column (self->view_ui, view_column);
         gtk_column_view_column_set_id (view_column, name);
 
+        g_signal_connect (view_column, "notify::visible", G_CALLBACK (column_visible_changed), self);
         g_hash_table_insert (self->factory_to_column_map,
                              factory,
                              g_object_ref (nautilus_column));
     }
+
+    section = g_menu_new ();
+    g_menu_append (section, _("More Columns"), "view.visible-columns");
+    g_menu_append_section (menu, NULL, G_MENU_MODEL (section));
+
+    g_signal_connect (gtk_column_view_get_columns (self->view_ui),
+                      "items-changed", G_CALLBACK (columns_items_changed), self);
 }
 
 static void
@@ -1198,6 +1326,15 @@ nautilus_list_view_init (NautilusListView *self)
 
     self->view_ui = create_view_ui (self);
     nautilus_list_base_setup_gestures (NAUTILUS_LIST_BASE (self));
+    self->action_group = nautilus_files_view_get_action_group (NAUTILUS_FILES_VIEW (self));
+    g_action_map_add_action_entries (G_ACTION_MAP (self->action_group),
+                                     list_view_entries,
+                                     G_N_ELEMENTS (list_view_entries),
+                                     self);
+
+    self->zoom_level = get_default_zoom_level ();
+    g_action_group_change_action_state (nautilus_files_view_get_action_group (NAUTILUS_FILES_VIEW (self)),
+                                        "zoom-to-level", g_variant_new_int32 (self->zoom_level));
 
     setup_view_columns (self);
 
@@ -1214,16 +1351,6 @@ nautilus_list_view_init (NautilusListView *self)
 
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (content_widget),
                                    GTK_WIDGET (self->view_ui));
-
-    self->action_group = nautilus_files_view_get_action_group (NAUTILUS_FILES_VIEW (self));
-    g_action_map_add_action_entries (G_ACTION_MAP (self->action_group),
-                                     list_view_entries,
-                                     G_N_ELEMENTS (list_view_entries),
-                                     self);
-
-    self->zoom_level = get_default_zoom_level ();
-    g_action_group_change_action_state (nautilus_files_view_get_action_group (NAUTILUS_FILES_VIEW (self)),
-                                        "zoom-to-level", g_variant_new_int32 (self->zoom_level));
 
     /* Set up tree expand/collapse shortcuts in capture phase otherwise they
      * would be handled by GtkListBase's cursor movement shortcuts. */
@@ -1258,6 +1385,9 @@ nautilus_list_view_dispose (GObject *object)
     g_clear_pointer (&self->factory_to_column_map, g_hash_table_destroy);
 
     g_signal_handlers_disconnect_by_func (gtk_column_view_get_sorter (self->view_ui), on_sorter_changed, self);
+    g_signal_handlers_disconnect_by_func (gtk_column_view_get_columns (self->view_ui),
+                                          columns_items_changed,
+                                          self);
 
     G_OBJECT_CLASS (nautilus_list_view_parent_class)->dispose (object);
 }
