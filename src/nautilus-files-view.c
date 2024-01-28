@@ -9828,7 +9828,11 @@ nautilus_files_view_init (NautilusFilesView *view)
      */
     nautilus_application_set_accelerator (app, "view.paste_accel", "<control>v");
     nautilus_application_set_accelerator (app, "view.new-folder", "<control><shift>n");
-    nautilus_application_set_accelerator (app, "view.select-pattern", "<control>s");
+    /* These two actions should never be enabled at the same time. */
+    nautilus_application_set_accelerator (app, "view.star", "<control>s");
+    nautilus_application_set_accelerator (app, "view.unstar", "<control>s");
+    /* Only accessible by shorcuts */
+    nautilus_application_set_accelerator (app, "view.select-pattern", "<control>p");
     nautilus_application_set_accelerators (app, "view.zoom-standard", zoom_standard_accels);
 
     /* This one should have been a keybinding, because it should trigger only
