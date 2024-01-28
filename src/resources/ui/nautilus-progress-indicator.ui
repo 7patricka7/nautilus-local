@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <object class="GtkPopover" id="operations_popover">
+    <property name="position">right</property>
     <property name="child">
       <object class="GtkScrolledWindow">
         <property name="hscrollbar_policy">never</property>
@@ -21,31 +22,51 @@
         </property>
       </object>
     </property>
-    <signal name="notify::visible" handler="on_operations_popover_notify_visible" object="NautilusProgressIndicator" swapped="yes"/>
   </object>
   <template class="NautilusProgressIndicator" parent="AdwBin">
     <property name="child">
-      <object class="GtkRevealer" id="operations_revealer">
-        <property name="halign">center</property>
-        <property name="valign">center</property>
-        <property name="transition_type">crossfade</property>
-        <property name="child">
-          <object class="GtkMenuButton" id="operations_button">
-            <property name="tooltip_text" translatable="yes">Show File Operations</property>
-            <property name="popover">operations_popover</property>
-            <child>
-              <object class="GtkDrawingArea" id="operations_icon">
-                <property name="width_request">16</property>
-                <property name="height_request">16</property>
-                <property name="halign">center</property>
-                <property name="valign">center</property>
-              </object>
-            </child>
-            <style>
-              <class name="image-button"/>
-            </style>
+      <object class="GtkListView" id="sidebar_list">
+        <property name="single-click-activate">true</property>
+        <property name="factory">
+          <object class="GtkBuilderListItemFactory">
+            <property name="bytes"><![CDATA[
+<interface>
+  <template class="GtkListItem">
+    <property name="child">
+      <object class="GtkBox">
+        <property name="margin-start">6</property>
+        <property name="margin-end">6</property>
+        <property name="margin-top">6</property>
+        <property name="margin-bottom">6</property>
+        <child>
+          <object class="GtkImage" id="progress_icon">
+            <property name="margin-end">6</property>
+            <binding name="paintable">
+              <closure type="GdkPaintable" function="get_paintable">
+                <lookup name="item">GtkListItem</lookup>
+              </closure>
+            </binding>
           </object>
-        </property>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="ellipsize">end</property>
+            <property name="margin-start">6</property>
+            <binding name="label">
+              <lookup name="status" type="NautilusProgressInfo">
+                <lookup name="item">GtkListItem</lookup>
+              </lookup>
+            </binding>
+          </object>
+        </child>
+      </object>
+    </property>
+  </template>
+</interface>
+          ]]></property>
+            </object>
+          </property>
+        <signal name="activate" handler="on_sidebar_list_activate" />
       </object>
     </property>
   </template>
