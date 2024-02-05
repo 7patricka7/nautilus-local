@@ -347,10 +347,9 @@ get_text_for_date_range (GPtrArray *date_range,
 }
 
 AdwMessageDialog *
-show_dialog (const gchar    *primary_text,
-             const gchar    *secondary_text,
-             GtkWindow      *parent,
-             GtkMessageType  type)
+show_dialog (const gchar *primary_text,
+             const gchar *secondary_text,
+             GtkWindow   *parent)
 {
     GtkWidget *dialog;
 

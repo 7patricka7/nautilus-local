@@ -569,8 +569,7 @@ nautilus_restore_files_from_trash (GList     *files,
 
         show_dialog (message,
                      _("The item cannot be restored from trash"),
-                     parent_window,
-                     GTK_MESSAGE_WARNING);
+                     parent_window);
     }
 
     if (original_dirs_hash != NULL)

@@ -185,8 +185,7 @@ nautilus_files_view_drop_proxy_received_uris (NautilusFilesView *view,
     {
         show_dialog (_("Drag and drop is not supported."),
                      _("An invalid drag type was used."),
-                     GET_ANCESTOR (view),
-                     GTK_MESSAGE_WARNING);
+                     GET_ANCESTOR (view));
         return;
     }
 

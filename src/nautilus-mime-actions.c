@@ -1224,8 +1224,7 @@ search_for_application_dbus_call_notify_cb (GDBusProxy   *proxy,
                                        error->message);
             show_dialog (_("Unable to search for app"),
                          message,
-                         parameters_install->parent_window,
-                         GTK_MESSAGE_ERROR);
+                         parameters_install->parent_window);
             g_free (message);
         }
         else
@@ -1721,8 +1720,7 @@ activation_mount_not_mounted_callback (GObject      *source_object,
         {
             show_dialog (_("Unable to access location"),
                          error->message,
-                         parameters->parent_window,
-                         GTK_MESSAGE_ERROR);
+                         parameters->parent_window);
         }
 
         if (error->domain != G_IO_ERROR ||
@@ -2020,8 +2018,7 @@ activation_mountable_mounted (NautilusFile *file,
         {
             show_dialog (_("Unable to access location"),
                          error->message,
-                         parameters->parent_window,
-                         GTK_MESSAGE_ERROR);
+                         parameters->parent_window);
         }
 
         if (error->code == G_IO_ERROR_CANCELLED)
@@ -2111,8 +2108,7 @@ activation_mountable_started (NautilusFile *file,
         {
             show_dialog (_("Unable to start location"),
                          error->message,
-                         parameters->parent_window,
-                         GTK_MESSAGE_ERROR);
+                         parameters->parent_window);
         }
 
         if (error->code == G_IO_ERROR_CANCELLED)

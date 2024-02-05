@@ -158,6 +158,8 @@ libnautilus_sources = [
   'nautilus-column-utilities.h',
   'nautilus-dbus-launcher.c',
   'nautilus-dbus-launcher.h',
+  'nautilus-dialog-utilities.c',
+  'nautilus-dialog-utilities.h',
   'nautilus-directory-async.c',
   'nautilus-directory-notify.h',
   'nautilus-directory-private.h',

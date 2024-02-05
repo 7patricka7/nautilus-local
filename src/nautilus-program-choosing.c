@@ -366,8 +366,7 @@ nautilus_launch_desktop_file (const char  *desktop_file_uri,
         g_object_unref (desktop_file);
         show_dialog (_("Sorry, but you cannot execute commands from a remote site."),
                      _("This is disabled due to security considerations."),
-                     parent_window,
-                     GTK_MESSAGE_ERROR);
+                     parent_window);
 
         return;
     }
@@ -379,8 +378,7 @@ nautilus_launch_desktop_file (const char  *desktop_file_uri,
     {
         show_dialog (_("There was an error launching the app."),
                      NULL,
-                     parent_window,
-                     GTK_MESSAGE_ERROR);
+                     parent_window);
         return;
     }
 
@@ -408,8 +406,7 @@ nautilus_launch_desktop_file (const char  *desktop_file_uri,
             /* all files are non-local */
             show_dialog (_("This drop target only supports local files."),
                          _("To open non-local files copy them to a local folder and then drop them again."),
-                         parent_window,
-                         GTK_MESSAGE_ERROR);
+                         parent_window);
 
             g_list_free_full (files, g_object_unref);
             g_object_unref (app_info);
@@ -421,8 +418,7 @@ nautilus_launch_desktop_file (const char  *desktop_file_uri,
             show_dialog (_("This drop target only supports local files."),
                          _("To open non-local files copy them to a local folder and then"
                            " drop them again. The local files you dropped have already been opened."),
-                         parent_window,
-                         GTK_MESSAGE_WARNING);
+                         parent_window);
         }
     }
 
@@ -454,8 +450,7 @@ nautilus_launch_desktop_file (const char  *desktop_file_uri,
         message = g_strconcat (_("Details: "), error->message, NULL);
         show_dialog (_("There was an error launching the app."),
                      message,
-                     parent_window,
-                     GTK_MESSAGE_ERROR);
+                     parent_window);
 
         g_error_free (error);
         g_free (message);

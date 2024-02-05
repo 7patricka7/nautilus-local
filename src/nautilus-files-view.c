@@ -2932,8 +2932,7 @@ action_paste_files_accel (GSimpleAction *action,
     {
         show_dialog (_("Could not paste files"),
                      _("Permissions do not allow pasting files in this directory"),
-                     nautilus_files_view_get_containing_window (view),
-                     GTK_MESSAGE_ERROR);
+                     nautilus_files_view_get_containing_window (view));
     }
     else
     {
@@ -6554,8 +6553,7 @@ send_email_done (GObject      *source_object,
     {
         show_dialog (_("Error sending email."),
                      error->message,
-                     window,
-                     GTK_MESSAGE_ERROR);
+                     window);
     }
 }
 
@@ -6828,8 +6826,7 @@ file_mount_callback (NautilusFile *file,
                                                  nautilus_file_get_display_name (file));
         show_dialog (text,
                      error->message,
-                     GTK_WINDOW (nautilus_files_view_get_window (view)),
-                     GTK_MESSAGE_ERROR);
+                     GTK_WINDOW (nautilus_files_view_get_window (view)));
     }
 }
 
@@ -6854,8 +6851,7 @@ file_unmount_callback (NautilusFile *file,
                                                  nautilus_file_get_display_name (file));
         show_dialog (text,
                      error->message,
-                     GTK_WINDOW (nautilus_files_view_get_window (view)),
-                     GTK_MESSAGE_ERROR);
+                     GTK_WINDOW (nautilus_files_view_get_window (view)));
     }
 }
 
@@ -6880,8 +6876,7 @@ file_eject_callback (NautilusFile *file,
                                                  nautilus_file_get_display_name (file));
         show_dialog (text,
                      error->message,
-                     GTK_WINDOW (nautilus_files_view_get_window (view)),
-                     GTK_MESSAGE_ERROR);
+                     GTK_WINDOW (nautilus_files_view_get_window (view)));
     }
 }
 
@@ -6902,8 +6897,7 @@ file_stop_callback (NautilusFile *file,
     {
         show_dialog (_("Unable to stop drive"),
                      error->message,
-                     GTK_WINDOW (nautilus_files_view_get_window (view)),
-                     GTK_MESSAGE_ERROR);
+                     GTK_WINDOW (nautilus_files_view_get_window (view)));
     }
 }
 
@@ -7014,8 +7008,7 @@ file_start_callback (NautilusFile *file,
         g_autofree char *text = g_strdup_printf (_("Unable to start “%s”"), name);
         show_dialog (text,
                      error->message,
-                     GTK_WINDOW (nautilus_files_view_get_window (view)),
-                     GTK_MESSAGE_ERROR);
+                     GTK_WINDOW (nautilus_files_view_get_window (view)));
     }
 }
 
