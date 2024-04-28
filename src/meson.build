@@ -69,6 +69,8 @@ libnautilus_sources = [
   'nautilus-date-utilities.h',
   'nautilus-dbus-manager.c',
   'nautilus-dbus-manager.h',
+  'nautilus-entry-completion-popover.c',
+  'nautilus-entry-completion-popover.h',
   'nautilus-error-reporting.c',
   'nautilus-error-reporting.h',
   'nautilus-preferences-window.c',

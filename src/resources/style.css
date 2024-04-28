@@ -327,3 +327,8 @@ label.encrypted_zip {
 rubberband {
   border-radius: 6px;
 }
+
+listview.entry-completion {
+  padding: 8px 0;
+}
+
