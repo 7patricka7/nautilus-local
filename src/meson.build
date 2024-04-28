@@ -96,6 +96,8 @@ libnautilus_sources = [
   'nautilus-location-banner.c',
   'nautilus-location-entry.c',
   'nautilus-location-entry.h',
+  'nautilus-location-entry-suggestion.c',
+  'nautilus-location-entry-suggestion.h',
   'nautilus-mime-actions.c',
   'nautilus-mime-actions.h',
   'nautilus-name-cell.c',
