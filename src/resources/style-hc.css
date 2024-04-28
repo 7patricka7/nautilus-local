@@ -25,3 +25,8 @@
   box-shadow: inset 0 0 0 1px alpha(@accent_color, .6);
 }
 
+/* Copied from Epiphany's location entry suggestion row style */
+listview.entry-completion > row:selected {
+  box-shadow: inset 0 0 0 1px @borders;
+}
+

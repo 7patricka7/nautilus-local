@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="NautilusLocationEntry" parent="GtkEntry">
+    <child>
+      <object class="NautilusEntryCompletionPopover" id="completions_popover">
+        <property name="factory">
+          <object class="GtkBuilderListItemFactory">
+            <property name="bytes"><![CDATA[
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <template class="GtkListItem">
+    <binding name="accessible-label">
+      <lookup name="suffix" type="NautilusLocationEntrySuggestion">
+        <lookup name="item">GtkListItem</lookup>
+      </lookup>
+    </binding>
+    <property name="child">
+      <object class="GtkBox">
+        <child>
+          <object class="GtkGestureClick">
+            <!-- GDK_BUTTON_PRIMARY -->
+            <property name="button">1</property>
+            <property name="exclusive">True</property>
+            <signal name="pressed" handler="item_pressed_cb" object="GtkListItem"/>
+            <signal name="released" handler="item_released_cb" object="GtkListItem"/>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="single-line-mode">True</property>
+            <property name="xalign">0</property>
+            <binding name="label">
+              <lookup name="string" type="GtkStringObject">
+                <lookup name="prefix" type="NautilusLocationEntrySuggestion">
+                  <lookup name="item">GtkListItem</lookup>
+                </lookup>
+              </lookup>
+            </binding>
+            <style>
+              <class name="dim-label"/>
+            </style>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="halign">start</property>
+            <property name="single-line-mode">True</property>
+            <property name="xalign">0</property>
+            <binding name="label">
+              <lookup name="suffix" type="NautilusLocationEntrySuggestion">
+                <lookup name="item">GtkListItem</lookup>
+              </lookup>
+            </binding>
+          </object>
+        </child>
+      </object>
+    </property>
+  </template>
+</interface>
+            ]]></property>
+          </object>
+        </property>
+        <signal name="notify::selected" handler="completion_popover_notify_selected_cb" swapped="yes"/>
+      </object>
+    </child>
+  </template>
+</interface>
