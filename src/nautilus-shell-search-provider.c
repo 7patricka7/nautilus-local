@@ -91,30 +91,6 @@ get_display_name (NautilusShellSearchProvider *self,
     }
 }
 
-static GIcon *
-get_gicon (NautilusShellSearchProvider *self,
-           NautilusFile                *file)
-{
-    GFile *location;
-    NautilusBookmark *bookmark;
-    NautilusBookmarkList *bookmarks;
-
-    bookmarks = nautilus_application_get_bookmarks (NAUTILUS_APPLICATION (g_application_get_default ()));
-
-    location = nautilus_file_get_location (file);
-    bookmark = nautilus_bookmark_list_item_with_location (bookmarks, location, NULL);
-    g_object_unref (location);
-
-    if (bookmark)
-    {
-        return nautilus_bookmark_get_icon (bookmark);
-    }
-    else
-    {
-        return nautilus_file_get_gicon (file, 0);
-    }
-}
-
 static void
 pending_search_free (PendingSearch *search)
 {
@@ -665,7 +641,7 @@ result_list_attributes_ready_cb (GList    *file_list,
         }
         else
         {
-            gicon = get_gicon (data->self, file);
+            gicon = nautilus_file_get_gicon (file, 0);
         }
 
         if (gicon == NULL)
