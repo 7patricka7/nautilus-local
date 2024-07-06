@@ -541,7 +541,7 @@ create_tag (NautilusQueryEditor *self,
     gtk_box_append (GTK_BOX (tag), label);
 
     button = gtk_button_new ();
-    gtk_button_set_icon_name (GTK_BUTTON (button), "window-close-symbolic");
+    gtk_button_set_icon_name (GTK_BUTTON (button), "cross-small-circle-outline-symbolic");
     gtk_widget_add_css_class (button, "flat");
     gtk_widget_add_css_class (button, "circular");
     g_signal_connect_object (button, "clicked",

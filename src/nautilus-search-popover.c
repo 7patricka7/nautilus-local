@@ -40,6 +40,28 @@ struct _NautilusSearchPopover
     GtkStack *type_dialog_stack;
 
     NautilusQuery *query;
+
+    GtkWidget *other_types_button;
+    GtkWidget *audio_button;
+    GtkWidget *documents_button;
+    GtkWidget *folders_button;
+    GtkWidget *images_button;
+    GtkWidget *text_button;
+    GtkWidget *spreadsheets_button;
+    GtkWidget *pdf_button;
+    GtkWidget *videos_button;
+
+    GtkWidget *calendar_button;
+    GtkWidget *today_button;
+    GtkWidget *yesterday_button;
+    GtkWidget *seven_days_button;
+    GtkWidget *fourteen_days_button;
+    GtkWidget *thirty_days_button;
+    GtkWidget *ninety_days_button;
+
+    GtkWidget *filename_search_button;
+    GtkWidget *full_text_search_button;
+
     GtkSingleSelection *other_types_model;
 
     gboolean fts_enabled;
@@ -337,6 +359,27 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
                                                            G_PARAM_READWRITE));
 
     gtk_widget_class_set_template_from_resource (widget_class, "/org/gnome/nautilus/ui/nautilus-search-popover.ui");
+
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, other_types_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, audio_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, documents_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, folders_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, images_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, text_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, spreadsheets_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, pdf_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, videos_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, calendar_button);
+
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, today_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, yesterday_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, seven_days_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, fourteen_days_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, thirty_days_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, ninety_days_button);
+
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, filename_search_button);
+    gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, full_text_search_button);
 }
 
 static void
