@@ -148,10 +148,6 @@ struct _NautilusGtkPlacesSidebar {
   graphene_point_t hover_start_point;
   GtkListBoxRow *hover_row;
 
-  /* volume mounting - delayed open process */
-  NautilusOpenFlags go_to_after_mount_open_flags;
-  GCancellable *cancellable;
-
   GtkWidget *popover;
   NautilusGtkSidebarRow *context_row;
 
@@ -161,7 +157,6 @@ struct _NautilusGtkPlacesSidebar {
 
   NautilusOpenFlags open_flags;
 
-  guint mounting               : 1;
   guint show_desktop           : 1;
 };
 
@@ -679,11 +674,6 @@ update_places (NautilusGtkPlacesSidebar *sidebar)
     g_object_get (selected, "uri", &original_uri, NULL);
   else
     original_uri = NULL;
-
-  g_cancellable_cancel (sidebar->cancellable);
-
-  g_object_unref (sidebar->cancellable);
-  sidebar->cancellable = g_cancellable_new ();
 
   /* Reset drag state, just in case we update the places while dragging or
    * ending a drag */
@@ -1680,6 +1670,7 @@ drive_start_from_bookmark_cb (GObject      *source_object,
 typedef struct {
   NautilusGtkSidebarRow *row;
   NautilusWindowSlot *window_slot; /* weak reference */
+  NautilusOpenFlags open_flags;
 } VolumeMountCallbackData;
 
 static void
@@ -1720,17 +1711,15 @@ volume_mount_cb (GObject      *source_object,
       g_error_free (error);
     }
 
-  sidebar->mounting = FALSE;
   nautilus_gtk_sidebar_row_set_busy (row, FALSE);
 
   mount = g_volume_get_mount (volume);
   if (mount != NULL)
     {
       GFile *location;
-      NautilusWindowSlot *window_slot = callback_data->window_slot;
 
       location = g_mount_get_default_location (mount);
-      call_open_location (sidebar, location, window_slot, sidebar->go_to_after_mount_open_flags);
+      call_open_location (sidebar, location, callback_data->window_slot, callback_data->open_flags);
 
       g_object_unref (G_OBJECT (location));
       g_object_unref (G_OBJECT (mount));
@@ -1743,7 +1732,8 @@ volume_mount_cb (GObject      *source_object,
 
 static void
 mount_volume (NautilusGtkSidebarRow *row,
-              GVolume       *volume)
+              GVolume               *volume,
+              NautilusOpenFlags      open_flags)
 {
   NautilusGtkPlacesSidebar *sidebar;
   g_autoptr (GMountOperation) mount_op = NULL;
@@ -1758,6 +1748,8 @@ mount_volume (NautilusGtkSidebarRow *row,
   callback_data = g_new0 (VolumeMountCallbackData, 1);
   g_set_weak_pointer (&callback_data->window_slot, sidebar->window_slot);
   callback_data->row = g_object_ref (row);
+  callback_data->open_flags = open_flags;
+
   g_volume_mount (volume, 0, mount_op, NULL, volume_mount_cb, callback_data);
 }
 
@@ -1791,12 +1783,10 @@ open_volume (NautilusGtkSidebarRow      *row,
 
   g_object_get (row, "sidebar", &sidebar, NULL);
 
-  if (volume != NULL && !sidebar->mounting)
+  if (volume != NULL)
     {
-      sidebar->mounting = TRUE;
-      sidebar->go_to_after_mount_open_flags = open_flags;
       nautilus_gtk_sidebar_row_set_busy (row, TRUE);
-      mount_volume (row, volume);
+      mount_volume (row, volume, open_flags);
     }
 }
 
@@ -2210,7 +2200,7 @@ mount_shortcut_cb (GSimpleAction *action,
                 NULL);
 
   if (volume != NULL)
-    mount_volume (sidebar->context_row, volume);
+    mount_volume (sidebar->context_row, volume, NAUTILUS_OPEN_FLAG_NORMAL);
 
   g_object_unref (volume);
 }
@@ -3437,8 +3427,6 @@ nautilus_gtk_places_sidebar_init (NautilusGtkPlacesSidebar *sidebar)
   GtkEventController *controller;
   GtkGesture *gesture;
 
-  sidebar->cancellable = g_cancellable_new ();
-
   create_volume_monitor (sidebar);
 
   sidebar->slot_signal_group = g_signal_group_new (NAUTILUS_TYPE_WINDOW_SLOT);
@@ -3622,13 +3610,6 @@ nautilus_gtk_places_sidebar_dispose (GObject *object)
 
   g_clear_object (&sidebar->window_slot);
   g_clear_object (&sidebar->slot_signal_group);
-
-  if (sidebar->cancellable)
-    {
-      g_cancellable_cancel (sidebar->cancellable);
-      g_object_unref (sidebar->cancellable);
-      sidebar->cancellable = NULL;
-    }
 
   g_clear_pointer (&sidebar->popover, gtk_widget_unparent);
 
