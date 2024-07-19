@@ -50,6 +50,7 @@ struct _NautilusSearchPopover
     GtkWidget *spreadsheets_button;
     GtkWidget *pdf_button;
     GtkWidget *videos_button;
+    GtkWidget *file_activated_button;
 
     GtkWidget *calendar_button;
     GtkWidget *today_button;
@@ -95,7 +96,7 @@ on_other_types_dialog_response (NautilusSearchPopover *popover)
     NautilusMinimalCell *item = gtk_single_selection_get_selected_item (popover->other_types_model);
     const gchar *mimetype = nautilus_minimal_cell_get_subtitle (item);
 
-    g_signal_emit_by_name (popover, "mime-type", -1, mimetype);
+    g_signal_emit_by_name (popover, "mime-type", -1, NULL, mimetype);
 
     g_clear_object (&popover->other_types_model);
 
@@ -223,6 +224,40 @@ show_other_types_dialog (NautilusSearchPopover *popover)
                               G_CALLBACK (on_other_types_dialog_response), popover);
 
     adw_dialog_present (popover->type_dialog, GTK_WIDGET (toplevel));
+}
+
+static void
+file_types_button_clicked (GtkButton *button,
+                           gpointer   user_data)
+{
+    NautilusSearchPopover *popover = NAUTILUS_SEARCH_POPOVER (user_data);
+
+    gint group = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (button), "mimetype-group"));
+
+    if (group == -1)
+    {
+        if (popover->file_activated_button != NULL)
+        {
+            gtk_widget_set_sensitive (GTK_WIDGET (popover->file_activated_button), TRUE);
+        }
+        popover->file_activated_button = NULL;
+        show_other_types_dialog (popover);
+    }
+    else
+    {
+        gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
+        if (popover->file_activated_button != NULL)
+        {
+            gtk_widget_set_sensitive (GTK_WIDGET (popover->file_activated_button), TRUE);
+        }
+        popover->file_activated_button = GTK_WIDGET (button);
+
+        const gchar *button_name = adw_button_content_get_label (ADW_BUTTON_CONTENT (gtk_button_get_child (button)));
+        g_autofree GString *cleaned_name = g_string_new (button_name);
+        g_string_replace (cleaned_name, "_", "", 0);
+        const char *label = cleaned_name->str;
+        g_signal_emit_by_name (popover, "mime-type", group, label, NULL);
+    }
 }
 
 static void
@@ -367,8 +402,9 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
                                        NULL,
                                        g_cclosure_marshal_generic,
                                        G_TYPE_NONE,
-                                       2,
+                                       3,
                                        G_TYPE_INT,
+                                       G_TYPE_STRING,
                                        G_TYPE_STRING);
 
     /**
@@ -415,6 +451,7 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, filename_search_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, full_text_search_button);
 
+    gtk_widget_class_bind_template_callback (widget_class, file_types_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, filename_search_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, full_text_search_button_clicked);
 }
@@ -426,6 +463,18 @@ nautilus_search_popover_init (NautilusSearchPopover *self)
 
     self->fts_enabled = g_settings_get_boolean (nautilus_preferences,
                                                 NAUTILUS_PREFERENCES_FTS_ENABLED);
+
+    self->file_activated_button = NULL;
+
+    g_object_set_data (G_OBJECT (self->audio_button), "mimetype-group", GINT_TO_POINTER (5));
+    g_object_set_data (G_OBJECT (self->documents_button), "mimetype-group", GINT_TO_POINTER (3));
+    g_object_set_data (G_OBJECT (self->folders_button), "mimetype-group", GINT_TO_POINTER (2));
+    g_object_set_data (G_OBJECT (self->images_button), "mimetype-group", GINT_TO_POINTER (7));
+    g_object_set_data (G_OBJECT (self->text_button), "mimetype-group", GINT_TO_POINTER (10));
+    g_object_set_data (G_OBJECT (self->spreadsheets_button), "mimetype-group", GINT_TO_POINTER (9));
+    g_object_set_data (G_OBJECT (self->pdf_button), "mimetype-group", GINT_TO_POINTER (6));
+    g_object_set_data (G_OBJECT (self->videos_button), "mimetype-group", GINT_TO_POINTER (11));
+    g_object_set_data (G_OBJECT (self->other_types_button), "mimetype-group", GINT_TO_POINTER (-1));
 
     /* if fts is enabled, then don't show the fts button as it is already
      * selected and part of the query */
@@ -484,8 +533,14 @@ nautilus_search_popover_reset_mime_types (NautilusSearchPopover *popover)
 {
     g_return_if_fail (NAUTILUS_IS_SEARCH_POPOVER (popover));
 
-    g_signal_emit_by_name (popover, "mime-type", 0, NULL);
+    if (popover->file_activated_button != NULL)
+    {
+        gtk_widget_set_sensitive (popover->file_activated_button, TRUE);
+    }
+    popover->file_activated_button = NULL;
+    g_signal_emit_by_name (popover, "mime-type", 0, NULL, NULL);
 }
+
 
 void
 nautilus_search_popover_reset_date_range (NautilusSearchPopover *popover)

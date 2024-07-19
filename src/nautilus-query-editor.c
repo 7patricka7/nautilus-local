@@ -601,6 +601,7 @@ search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
 static void
 search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
                                      gint                   mimetype_group,
+                                     const gchar           *mimetype_button_name,
                                      const gchar           *mimetype,
                                      gpointer               user_data)
 {
@@ -629,10 +630,10 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
     {
         mimetypes = nautilus_mime_types_group_get_mimetypes (mimetype_group);
         editor->mime_types_tag = create_tag (editor,
-                                             nautilus_mime_types_group_get_name (mimetype_group),
+                                             mimetype_button_name,
                                              FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_mime_types));
-        gtk_box_append (GTK_BOX (editor->tags_box), editor->mime_types_tag);
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->mime_types_tag, editor->fts_tag);
     }
     else
     {
@@ -646,7 +647,7 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
                                              display_name,
                                              FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_mime_types));
-        gtk_box_append (GTK_BOX (editor->tags_box), editor->mime_types_tag);
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->mime_types_tag, editor->fts_tag);
     }
     nautilus_query_set_mime_types (editor->query, mimetypes);
 

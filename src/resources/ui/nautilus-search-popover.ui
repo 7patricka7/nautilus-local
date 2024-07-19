@@ -44,6 +44,7 @@
                             <property name="icon-name">external-link-symbolic</property>
                           </object>
                         </property>
+                        <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                         <style>
                           <class name="flat"/>
                         </style>
@@ -68,6 +69,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
@@ -79,6 +81,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
@@ -90,6 +93,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
@@ -101,6 +105,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                       </object>
@@ -118,6 +123,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
@@ -129,6 +135,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
@@ -140,6 +147,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
@@ -151,6 +159,7 @@
                                 <property name="use_underline">True</property>
                               </object>
                             </property>
+                            <signal name="clicked" handler="file_types_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                       </object>
