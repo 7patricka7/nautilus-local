@@ -55,6 +55,7 @@ struct _NautilusQueryEditor
 
     GtkWidget *mime_types_tag;
     GtkWidget *date_range_tag;
+    GtkWidget *fts_tag;
 
     GCancellable *cancellable;
 
@@ -525,6 +526,7 @@ entry_changed_cb (GtkWidget           *entry,
 static GtkWidget *
 create_tag (NautilusQueryEditor *self,
             const gchar         *text,
+            gboolean             is_fts_button,
             GCallback            reset_callback)
 {
     GtkWidget *tag;
@@ -540,14 +542,20 @@ create_tag (NautilusQueryEditor *self,
     gtk_widget_set_margin_start (label, 12);
     gtk_box_append (GTK_BOX (tag), label);
 
-    button = gtk_button_new ();
-    gtk_button_set_icon_name (GTK_BUTTON (button), "cross-small-circle-outline-symbolic");
-    gtk_widget_add_css_class (button, "flat");
-    gtk_widget_add_css_class (button, "circular");
-    g_signal_connect_object (button, "clicked",
-                             reset_callback, self->popover, G_CONNECT_SWAPPED);
-    gtk_box_append (GTK_BOX (tag), button);
-
+    if (is_fts_button == FALSE)
+    {
+        button = gtk_button_new ();
+        gtk_button_set_icon_name (GTK_BUTTON (button), "cross-small-circle-outline-symbolic");
+        gtk_widget_add_css_class (button, "flat");
+        gtk_widget_add_css_class (button, "circular");
+        g_signal_connect_object (button, "clicked",
+                                 reset_callback, self->popover, G_CONNECT_SWAPPED);
+        gtk_box_append (GTK_BOX (tag), button);
+    }
+    else
+    {
+        gtk_widget_set_margin_end (label, 12);
+    }
     return tag;
 }
 
@@ -578,6 +586,7 @@ search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
         text_for_date_range = get_text_for_date_range (date_range, TRUE);
         editor->date_range_tag = create_tag (editor,
                                              text_for_date_range,
+                                             FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_date_range));
         gtk_box_append (GTK_BOX (editor->tags_box), editor->date_range_tag);
     }
@@ -621,6 +630,7 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
         mimetypes = nautilus_mime_types_group_get_mimetypes (mimetype_group);
         editor->mime_types_tag = create_tag (editor,
                                              nautilus_mime_types_group_get_name (mimetype_group),
+                                             FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_mime_types));
         gtk_box_append (GTK_BOX (editor->tags_box), editor->mime_types_tag);
     }
@@ -634,6 +644,7 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
         display_name = g_content_type_get_description (mimetype);
         editor->mime_types_tag = create_tag (editor,
                                              display_name,
+                                             FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_mime_types));
         gtk_box_append (GTK_BOX (editor->tags_box), editor->mime_types_tag);
     }
@@ -658,10 +669,39 @@ search_popover_fts_changed_cb (GObject    *popover,
         create_query (editor);
     }
 
+    if (editor->fts_tag != NULL)
+    {
+        gtk_box_remove (GTK_BOX (editor->tags_box), editor->fts_tag);
+        editor->fts_tag = NULL;
+    }
+
+    gboolean fts_enabled = nautilus_search_popover_get_fts_enabled (NAUTILUS_SEARCH_POPOVER (popover));
+    gboolean fts_sensitive = nautilus_search_popover_get_fts_sensitive (NAUTILUS_SEARCH_POPOVER (popover));
+
+    if (fts_sensitive)
+    {
+        if (fts_enabled)
+        {
+            editor->fts_tag = create_tag (editor,
+                                          _("Only Contents"),
+                                          TRUE,
+                                          NULL);
+        }
+        else
+        {
+            editor->fts_tag = create_tag (editor,
+                                          _("Only Filenames"),
+                                          TRUE,
+                                          NULL);
+        }
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->fts_tag, NULL);
+    }
+
     nautilus_query_set_search_content (editor->query,
                                        nautilus_search_popover_get_fts_enabled (NAUTILUS_SEARCH_POPOVER (popover)));
 
     nautilus_query_editor_changed (editor);
+    gtk_widget_set_visible (editor->tags_box, (gtk_widget_get_first_child (editor->tags_box) != NULL));
 }
 
 static void

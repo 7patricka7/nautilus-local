@@ -61,10 +61,10 @@ struct _NautilusSearchPopover
 
     GtkWidget *filename_search_button;
     GtkWidget *full_text_search_button;
+    gboolean fts_enabled;
+    gboolean fts_sensitive;
 
     GtkSingleSelection *other_types_model;
-
-    gboolean fts_enabled;
 };
 
 static void          show_other_types_dialog (NautilusSearchPopover *popover);
@@ -225,10 +225,44 @@ show_other_types_dialog (NautilusSearchPopover *popover)
     adw_dialog_present (popover->type_dialog, GTK_WIDGET (toplevel));
 }
 
+static void
+filename_search_button_clicked (GtkButton *button,
+                                gpointer   user_data)
+{
+    NautilusSearchPopover *popover;
+    popover = NAUTILUS_SEARCH_POPOVER (user_data);
+
+    gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
+    gtk_widget_set_sensitive (GTK_WIDGET (popover->full_text_search_button), TRUE);
+
+    popover->fts_enabled = FALSE;
+    g_settings_set_boolean (nautilus_preferences, NAUTILUS_PREFERENCES_FTS_ENABLED, FALSE);
+    g_object_notify (G_OBJECT (popover), "fts-enabled");
+}
+
+static void
+full_text_search_button_clicked (GtkButton *button,
+                                 gpointer   user_data)
+{
+    NautilusSearchPopover *popover;
+    popover = NAUTILUS_SEARCH_POPOVER (user_data);
+
+    gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
+    gtk_widget_set_sensitive (GTK_WIDGET (popover->filename_search_button), TRUE);
+
+    popover->fts_enabled = TRUE;
+    g_settings_set_boolean (nautilus_preferences, NAUTILUS_PREFERENCES_FTS_ENABLED, TRUE);
+    g_object_notify (G_OBJECT (popover), "fts-enabled");
+}
+
 void
 nautilus_search_popover_set_fts_sensitive (NautilusSearchPopover *popover,
                                            gboolean               sensitive)
 {
+    popover->fts_sensitive = sensitive;
+    gtk_widget_set_sensitive (popover->full_text_search_button, sensitive & !popover->fts_enabled);
+    gtk_widget_set_sensitive (popover->filename_search_button, sensitive & popover->fts_enabled);
+    g_object_notify (G_OBJECT (popover), "fts-enabled");
 }
 
 static void
@@ -380,6 +414,9 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
 
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, filename_search_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, full_text_search_button);
+
+    gtk_widget_class_bind_template_callback (widget_class, filename_search_button_clicked);
+    gtk_widget_class_bind_template_callback (widget_class, full_text_search_button_clicked);
 }
 
 static void
@@ -389,6 +426,11 @@ nautilus_search_popover_init (NautilusSearchPopover *self)
 
     self->fts_enabled = g_settings_get_boolean (nautilus_preferences,
                                                 NAUTILUS_PREFERENCES_FTS_ENABLED);
+
+    /* if fts is enabled, then don't show the fts button as it is already
+     * selected and part of the query */
+    gtk_widget_set_sensitive (self->full_text_search_button, !self->fts_enabled);
+    gtk_widget_set_sensitive (self->filename_search_button, self->fts_enabled);
 }
 
 GtkWidget *
@@ -457,4 +499,10 @@ gboolean
 nautilus_search_popover_get_fts_enabled (NautilusSearchPopover *popover)
 {
     return popover->fts_enabled;
+}
+
+gboolean
+nautilus_search_popover_get_fts_sensitive (NautilusSearchPopover *popover)
+{
+    return popover->fts_sensitive;
 }

@@ -21,6 +21,7 @@
 #include <glib.h>
 #include <gtk/gtk.h>
 
+#include "nautilus-global-preferences.h"
 #include "nautilus-query.h"
 
 G_BEGIN_DECLS
@@ -48,5 +49,6 @@ void                 nautilus_search_popover_reset_mime_types    (NautilusSearch
 gboolean             nautilus_search_popover_get_fts_enabled     (NautilusSearchPopover *popover);
 void                 nautilus_search_popover_set_fts_sensitive   (NautilusSearchPopover *popover,
                                                                   gboolean               sensitive);
+gboolean             nautilus_search_popover_get_fts_sensitive   (NautilusSearchPopover *popover);
 
 G_END_DECLS

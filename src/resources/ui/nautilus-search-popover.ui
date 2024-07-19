@@ -280,12 +280,16 @@
                       <object class="GtkButton" id="filename_search_button">
                         <property name="label" translatable="yes">O_nly Filenames</property>
                         <property name="use_underline">True</property>
+                        <property name="sensitive">true</property>
+                        <signal name="clicked" handler="filename_search_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                       </object>
                     </child>
                     <child>
                       <object class="GtkButton" id="full_text_search_button">
                         <property name="label" translatable="yes">Only _Contents</property>
                         <property name="use_underline">True</property>
+                        <property name="sensitive">true</property>
+                        <signal name="clicked" handler="full_text_search_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                       </object>
                     </child>
                   </object>
