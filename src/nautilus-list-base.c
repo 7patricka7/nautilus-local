@@ -391,20 +391,6 @@ on_item_longpress_pressed (GtkGestureLongPress *gesture,
     gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
 }
 
-static void
-on_view_longpress_pressed (GtkGestureLongPress *gesture,
-                           gdouble              x,
-                           gdouble              y,
-                           gpointer             user_data)
-{
-    NautilusListBase *self = NAUTILUS_LIST_BASE (user_data);
-    NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
-
-    gtk_selection_model_unselect_all (GTK_SELECTION_MODEL (priv->model));
-
-    g_signal_emit (self, signals[POPUP_BACKGROUND_CONTEXT_MENU], 0, x, y);
-}
-
 static GdkContentProvider *
 on_item_drag_prepare (GtkDragSource *source,
                       double         x,
@@ -1342,12 +1328,6 @@ nautilus_list_base_setup_gestures (NautilusListBase *self)
     gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (controller), 0);
     g_signal_connect (controller, "pressed",
                       G_CALLBACK (on_view_click_pressed), self);
-
-    controller = GTK_EVENT_CONTROLLER (gtk_gesture_long_press_new ());
-    gtk_widget_add_controller (GTK_WIDGET (self), controller);
-    gtk_gesture_single_set_touch_only (GTK_GESTURE_SINGLE (controller), TRUE);
-    g_signal_connect (controller, "pressed",
-                      G_CALLBACK (on_view_longpress_pressed), self);
 
     /* TODO: Implement GDK_ACTION_ASK */
     drop_target = gtk_drop_target_new (G_TYPE_INVALID, GDK_ACTION_ALL);
