@@ -645,25 +645,6 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
 }
 
 static void
-search_popover_time_type_changed_cb (NautilusSearchPopover   *popover,
-                                     NautilusQuerySearchType  data,
-                                     gpointer                 user_data)
-{
-    NautilusQueryEditor *editor;
-
-    editor = NAUTILUS_QUERY_EDITOR (user_data);
-
-    if (editor->query == NULL)
-    {
-        create_query (editor);
-    }
-
-    nautilus_query_set_search_type (editor->query, data);
-
-    nautilus_query_editor_changed (editor);
-}
-
-static void
 search_popover_fts_changed_cb (GObject    *popover,
                                GParamSpec *pspec,
                                gpointer    user_data)
@@ -792,8 +773,6 @@ nautilus_query_editor_init (NautilusQueryEditor *editor)
                       G_CALLBACK (search_popover_date_range_changed_cb), editor);
     g_signal_connect (editor->popover, "mime-type",
                       G_CALLBACK (search_popover_mime_type_changed_cb), editor);
-    g_signal_connect (editor->popover, "time-type",
-                      G_CALLBACK (search_popover_time_type_changed_cb), editor);
     g_signal_connect (editor->popover, "notify::fts-enabled",
                       G_CALLBACK (search_popover_fts_changed_cb), editor);
 }
