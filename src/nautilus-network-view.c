@@ -143,14 +143,6 @@ real_get_icon_size (NautilusListBase *list_base_view)
     return NAUTILUS_LIST_ICON_SIZE_SMALL;
 }
 
-static GtkWidget *
-real_get_view_ui (NautilusListBase *list_base_view)
-{
-    NautilusNetworkView *self = NAUTILUS_NETWORK_VIEW (list_base_view);
-
-    return GTK_WIDGET (self->view_ui);
-}
-
 static int
 real_get_zoom_level (NautilusListBase *list_base_view)
 {
@@ -172,6 +164,15 @@ static GVariant *
 real_get_sort_state (NautilusListBase *list_base)
 {
     return g_variant_take_ref (g_variant_new ("(sb)", "invalid", FALSE));
+}
+
+static void
+real_set_enable_rubberband (NautilusListBase *list_base,
+                            gboolean          enabled)
+{
+    NautilusNetworkView *self = NAUTILUS_NETWORK_VIEW (list_base);
+
+    gtk_list_view_set_enable_rubberband (self->view_ui, enabled);
 }
 
 static void
@@ -362,10 +363,10 @@ nautilus_network_view_class_init (NautilusNetworkViewClass *klass)
     list_base_view_class->get_icon_size = real_get_icon_size;
     list_base_view_class->get_sort_state = real_get_sort_state;
     list_base_view_class->get_view_info = real_get_view_info;
-    list_base_view_class->get_view_ui = real_get_view_ui;
     list_base_view_class->get_zoom_level = real_get_zoom_level;
     list_base_view_class->popup_background_context_menu = real_popup_background_context_menu;
     list_base_view_class->scroll_to = real_scroll_to;
+    list_base_view_class->set_enable_rubberband = real_set_enable_rubberband;
     list_base_view_class->set_sort_state = real_set_sort_state;
     list_base_view_class->set_zoom_level = real_set_zoom_level;
 }
