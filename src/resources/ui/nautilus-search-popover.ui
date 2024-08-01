@@ -217,24 +217,28 @@
                           <object class="GtkButton" id="today_button">
                             <property name="label" translatable="yes">T_oday</property>
                             <property name="use_underline">True</property>
+                            <signal name="clicked" handler="date_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
                           <object class="GtkButton" id="yesterday_button">
                             <property name="label" translatable="yes">_Yesterday</property>
                             <property name="use_underline">True</property>
+                            <signal name="clicked" handler="date_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
                           <object class="GtkButton" id="seven_days_button">
                             <property name="label" translatable="yes">_7 Days</property>
                             <property name="use_underline">True</property>
+                            <signal name="clicked" handler="date_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
                           <object class="GtkButton" id="fourteen_days_button">
                             <property name="label" translatable="yes">_14 Days</property>
                             <property name="use_underline">True</property>
+                            <signal name="clicked" handler="date_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                       </object>
@@ -247,12 +251,14 @@
                           <object class="GtkButton" id="thirty_days_button">
                             <property name="label" translatable="yes">_30 Days</property>
                             <property name="use_underline">True</property>
+                            <signal name="clicked" handler="date_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                         <child>
                           <object class="GtkButton" id="ninety_days_button">
                             <property name="label" translatable="yes">_90 Days</property>
                             <property name="use_underline">True</property>
+                            <signal name="clicked" handler="date_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                           </object>
                         </child>
                       </object>

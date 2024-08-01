@@ -562,6 +562,7 @@ create_tag (NautilusQueryEditor *self,
 static void
 search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
                                       GPtrArray             *date_range,
+                                      const gchar           *datebutton_name,
                                       gpointer               user_data)
 {
     NautilusQueryEditor *editor;
@@ -583,15 +584,27 @@ search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
     {
         g_autofree gchar *text_for_date_range = NULL;
 
-        text_for_date_range = get_text_for_date_range (date_range, TRUE);
-        editor->date_range_tag = create_tag (editor,
-                                             text_for_date_range,
-                                             FALSE,
-                                             G_CALLBACK (nautilus_search_popover_reset_date_range));
-        gtk_box_append (GTK_BOX (editor->tags_box), editor->date_range_tag);
+        if (datebutton_name == NULL)
+        {
+            editor->date_range_tag = create_tag (editor,
+                                                 "Date Range",
+                                                 FALSE,
+                                                 G_CALLBACK (nautilus_search_popover_reset_date_range));
+        }
+        else
+        {
+            editor->date_range_tag = create_tag (editor,
+                                                 datebutton_name,
+                                                 FALSE,
+                                                 G_CALLBACK (nautilus_search_popover_reset_date_range));
+        }
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->date_range_tag, editor->fts_tag);
     }
 
     nautilus_query_set_date_range (editor->query, date_range);
+
+    /* We are searching using last modified */
+    nautilus_query_set_search_type (editor->query, NAUTILUS_QUERY_SEARCH_TYPE_LAST_MODIFIED);
 
     nautilus_query_editor_changed (editor);
     gtk_widget_set_visible (editor->tags_box,

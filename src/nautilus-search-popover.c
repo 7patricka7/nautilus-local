@@ -32,6 +32,13 @@
 
  #define SEARCH_FILTER_MAX_YEARS 5
 
+typedef struct
+{
+    GtkWidget *date_from_row;
+    GtkWidget *date_to_row;
+    GtkWidget *select_button;
+} DateDialog;
+
 struct _NautilusSearchPopover
 {
     GtkPopover parent;
@@ -59,6 +66,7 @@ struct _NautilusSearchPopover
     GtkWidget *fourteen_days_button;
     GtkWidget *thirty_days_button;
     GtkWidget *ninety_days_button;
+    GtkWidget *date_activated_button;
 
     GtkWidget *filename_search_button;
     GtkWidget *full_text_search_button;
@@ -89,6 +97,46 @@ enum
 };
 
 static guint signals[LAST_SIGNAL];
+
+static void
+date_button_clicked (GtkButton *button,
+                     gpointer   user_data)
+{
+    NautilusSearchPopover *popover;
+    popover = NAUTILUS_SEARCH_POPOVER (user_data);
+
+    gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
+    if (popover->date_activated_button != NULL)
+    {
+        gtk_widget_set_sensitive (GTK_WIDGET (popover->date_activated_button), TRUE);
+    }
+    popover->date_activated_button = GTK_WIDGET (button);
+
+    GDateTime *date;
+    GDateTime *now;
+    GPtrArray *date_range = NULL;
+    const gchar *button_name;
+
+    now = g_date_time_new_now_local ();
+    date = g_object_get_data (G_OBJECT (button), "date");
+    button_name = gtk_button_get_label (button);
+    g_autofree GString *cleaned_name = g_string_new (button_name);
+    g_string_replace (cleaned_name, "_", "", 0);
+    const char *label = cleaned_name->str;
+
+    if (date)
+    {
+        date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
+        g_ptr_array_add (date_range, g_date_time_ref (date));
+        g_ptr_array_add (date_range, g_date_time_ref (now));
+    }
+    g_signal_emit_by_name (popover, "date-range", date_range, label);
+    if (date_range)
+    {
+        g_ptr_array_unref (date_range);
+    }
+    g_date_time_unref (now);
+}
 
 static void
 on_other_types_dialog_response (NautilusSearchPopover *popover)
@@ -391,8 +439,9 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
                                         NULL,
                                         g_cclosure_marshal_generic,
                                         G_TYPE_NONE,
-                                        1,
-                                        G_TYPE_PTR_ARRAY);
+                                        2,
+                                        G_TYPE_PTR_ARRAY,
+                                        G_TYPE_STRING);
 
     signals[MIME_TYPE] = g_signal_new ("mime-type",
                                        NAUTILUS_TYPE_SEARCH_POPOVER,
@@ -451,6 +500,7 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, filename_search_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, full_text_search_button);
 
+    gtk_widget_class_bind_template_callback (widget_class, date_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, file_types_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, filename_search_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, full_text_search_button_clicked);
@@ -465,6 +515,7 @@ nautilus_search_popover_init (NautilusSearchPopover *self)
                                                 NAUTILUS_PREFERENCES_FTS_ENABLED);
 
     self->file_activated_button = NULL;
+    self->date_activated_button = NULL;
 
     g_object_set_data (G_OBJECT (self->audio_button), "mimetype-group", GINT_TO_POINTER (5));
     g_object_set_data (G_OBJECT (self->documents_button), "mimetype-group", GINT_TO_POINTER (3));
@@ -475,6 +526,43 @@ nautilus_search_popover_init (NautilusSearchPopover *self)
     g_object_set_data (G_OBJECT (self->pdf_button), "mimetype-group", GINT_TO_POINTER (6));
     g_object_set_data (G_OBJECT (self->videos_button), "mimetype-group", GINT_TO_POINTER (11));
     g_object_set_data (G_OBJECT (self->other_types_button), "mimetype-group", GINT_TO_POINTER (-1));
+
+    GDateTime *now, *now_start;
+    gint year, month, day;
+
+    now = g_date_time_new_now_local ();
+    year = g_date_time_get_year (now);
+    month = g_date_time_get_month (now);
+    day = g_date_time_get_day_of_month (now);
+    now_start = g_date_time_new_local (year, month, day, 0, 0, 0);
+
+    g_object_set_data_full (G_OBJECT (self->today_button),
+                            "date",
+                            g_date_time_ref (now_start),
+                            (GDestroyNotify) g_date_time_unref);
+    g_object_set_data_full (G_OBJECT (self->yesterday_button),
+                            "date",
+                            g_date_time_ref (g_date_time_add_days (now, -1)),
+                            (GDestroyNotify) g_date_time_unref);
+    g_object_set_data_full (G_OBJECT (self->seven_days_button),
+                            "date",
+                            g_date_time_ref (g_date_time_add_days (now, -7)),
+                            (GDestroyNotify) g_date_time_unref);
+    g_object_set_data_full (G_OBJECT (self->fourteen_days_button),
+                            "date",
+                            g_date_time_ref (g_date_time_add_days (now, -14)),
+                            (GDestroyNotify) g_date_time_unref);
+    g_object_set_data_full (G_OBJECT (self->thirty_days_button),
+                            "date",
+                            g_date_time_ref (g_date_time_add_days (now, -30)),
+                            (GDestroyNotify) g_date_time_unref);
+    g_object_set_data_full (G_OBJECT (self->ninety_days_button),
+                            "date",
+                            g_date_time_ref (g_date_time_add_days (now, -90)),
+                            (GDestroyNotify) g_date_time_unref);
+
+    g_date_time_unref (now);
+    g_date_time_unref (now_start);
 
     /* if fts is enabled, then don't show the fts button as it is already
      * selected and part of the query */
@@ -547,6 +635,11 @@ nautilus_search_popover_reset_date_range (NautilusSearchPopover *popover)
 {
     g_return_if_fail (NAUTILUS_IS_SEARCH_POPOVER (popover));
 
+    if (popover->date_activated_button != NULL)
+    {
+        gtk_widget_set_sensitive (popover->date_activated_button, TRUE);
+    }
+    popover->date_activated_button = NULL;
     g_signal_emit_by_name (popover, "date-range", NULL);
 }
 
