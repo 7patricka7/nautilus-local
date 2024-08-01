@@ -67,6 +67,7 @@ struct _NautilusSearchPopover
     GtkWidget *thirty_days_button;
     GtkWidget *ninety_days_button;
     GtkWidget *date_activated_button;
+    DateDialog *date_dialog;
 
     GtkWidget *filename_search_button;
     GtkWidget *full_text_search_button;
@@ -136,6 +137,192 @@ date_button_clicked (GtkButton *button,
         g_ptr_array_unref (date_range);
     }
     g_date_time_unref (now);
+}
+
+static void
+calendar_date_selected (GtkCalendar *self,
+                        gpointer     user_data)
+{
+    AdwEntryRow *date_row;
+    date_row = ADW_ENTRY_ROW (user_data);
+
+    gint year = gtk_calendar_get_year (self);
+    gint month = gtk_calendar_get_month (self);
+    month++;
+    gint day = gtk_calendar_get_day (self);
+
+    g_autoptr (GDateTime) date = g_date_time_new_local (year, month, day, 0, 0, 0);
+    g_autofree gchar *date_string = g_date_time_format (date, "%x");
+    gtk_editable_set_text (GTK_EDITABLE (date_row), date_string);
+}
+
+static void
+calendar_text_entered (GtkEditable *self,
+                       gpointer     user_data)
+{
+    DateDialog *date_dialog;
+    date_dialog = (DateDialog *) user_data;
+
+    const gchar *from_date_text = gtk_editable_get_text (GTK_EDITABLE (date_dialog->date_from_row));
+    const gchar *to_date_text = gtk_editable_get_text (GTK_EDITABLE (date_dialog->date_to_row));
+
+    g_autoptr (GDate) from_date, to_date;
+    from_date = g_date_new ();
+    to_date = g_date_new ();
+    g_date_set_parse (from_date, from_date_text);
+    g_date_set_parse (to_date, to_date_text);
+
+    if (g_date_valid (from_date) &&
+        g_date_valid (to_date) &&
+        g_date_compare (from_date, to_date) != 1)
+    {
+        gtk_widget_set_sensitive (date_dialog->select_button, TRUE);
+    }
+    else
+    {
+        gtk_widget_set_sensitive (date_dialog->select_button, FALSE);
+    }
+}
+
+static void
+calendar_select_button_clicked (GtkButton *self,
+                                gpointer   user_data)
+{
+    NautilusSearchPopover *popover;
+    popover = NAUTILUS_SEARCH_POPOVER (user_data);
+
+    const gchar *from_date_text = gtk_editable_get_text (GTK_EDITABLE (popover->date_dialog->date_from_row));
+    const gchar *to_date_text = gtk_editable_get_text (GTK_EDITABLE (popover->date_dialog->date_to_row));
+
+    g_autoptr (GDate) from_date, to_date;
+    GPtrArray *date_range = NULL;
+    from_date = g_date_new ();
+    to_date = g_date_new ();
+    g_date_set_parse (from_date, from_date_text);
+    g_date_set_parse (to_date, to_date_text);
+
+    g_autoptr (GDateTime) from_date_time, to_date_time;
+    from_date_time = g_date_time_new_local (g_date_get_year (from_date),
+                                            g_date_get_month (from_date),
+                                            g_date_get_day (from_date),
+                                            0,
+                                            0,
+                                            0);
+    to_date_time = g_date_time_new_local (g_date_get_year (to_date),
+                                          g_date_get_month (to_date),
+                                          g_date_get_day (to_date),
+                                          0,
+                                          0,
+                                          0);
+
+    date_range = g_ptr_array_new_full (2, (GDestroyNotify) g_date_time_unref);
+    g_ptr_array_add (date_range, g_date_time_ref (from_date_time));
+    g_ptr_array_add (date_range, g_date_time_ref (to_date_time));
+
+    g_signal_emit_by_name (popover, "date-range", date_range, NULL);
+    if (date_range)
+    {
+        g_ptr_array_unref (date_range);
+    }
+}
+
+static void
+calendar_button_clicked (GtkButton *button,
+                         gpointer   user_data)
+{
+    NautilusSearchPopover *popover;
+    GtkRoot *toplevel;
+    GtkWidget *dialog;
+    GtkWidget *toolbar_view;
+    GtkWidget *header_bar;
+    GtkWidget *cancel_button;
+    GtkWidget *date_box;
+    GtkWidget *date_range_group;
+    GtkWidget *date_from_calendar_button;
+    GtkWidget *date_to_calendar_button;
+    GtkWidget *from_popover;
+    GtkWidget *from_calendar;
+    GtkWidget *to_popover;
+    GtkWidget *to_calendar;
+
+    popover = NAUTILUS_SEARCH_POPOVER (user_data);
+    gtk_popover_popdown (GTK_POPOVER (popover));
+
+    popover->date_dialog = g_new0 (DateDialog, 1);
+
+    toplevel = gtk_widget_get_root (GTK_WIDGET (popover));
+    dialog = g_object_new (ADW_TYPE_DIALOG,
+                           "title", _("Add Date Filter"),
+                           "content-height", 225,
+                           "content-width", 450,
+                           NULL);
+
+    /* Toolbar view */
+    toolbar_view = adw_toolbar_view_new ();
+    adw_dialog_set_child (ADW_DIALOG (dialog), toolbar_view);
+
+    /* Header bar and buttons */
+    header_bar = g_object_new (ADW_TYPE_HEADER_BAR,
+                               "show-start-title-buttons", FALSE,
+                               "show-end-title-buttons", FALSE,
+                               NULL);
+    cancel_button = gtk_button_new_with_mnemonic (_("_Cancel"));
+    popover->date_dialog->select_button = gtk_button_new_with_mnemonic (_("_Select"));
+    gtk_widget_set_sensitive (popover->date_dialog->select_button, FALSE);
+    gtk_widget_add_css_class (GTK_WIDGET (popover->date_dialog->select_button), "suggested-action");
+    adw_header_bar_pack_start (ADW_HEADER_BAR (header_bar), cancel_button);
+    adw_header_bar_pack_end (ADW_HEADER_BAR (header_bar), popover->date_dialog->select_button);
+    adw_toolbar_view_add_top_bar (ADW_TOOLBAR_VIEW (toolbar_view), header_bar);
+    g_signal_connect_swapped (cancel_button, "clicked", G_CALLBACK (adw_dialog_close), dialog);
+    g_signal_connect_swapped (popover->date_dialog->select_button, "clicked", G_CALLBACK (adw_dialog_close), dialog);
+    g_signal_connect (popover->date_dialog->select_button, "clicked", G_CALLBACK (calendar_select_button_clicked), popover);
+
+    /* Date content box */
+    date_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_margin_start (date_box, 36);
+    gtk_widget_set_margin_end (date_box, 36);
+    gtk_widget_set_valign (date_box, GTK_ALIGN_CENTER);
+    adw_toolbar_view_set_content (ADW_TOOLBAR_VIEW (toolbar_view), date_box);
+
+    /* Date range preferences group */
+    date_range_group = adw_preferences_group_new ();
+    gtk_box_append (GTK_BOX (date_box), date_range_group);
+
+    /* From date row */
+    popover->date_dialog->date_from_row = g_object_new (ADW_TYPE_ENTRY_ROW,
+                                                        "title", _("From"),
+                                                        NULL);
+    adw_preferences_group_add (ADW_PREFERENCES_GROUP (date_range_group), popover->date_dialog->date_from_row);
+    date_from_calendar_button = gtk_menu_button_new ();
+    gtk_widget_add_css_class (GTK_WIDGET (date_from_calendar_button), "flat");
+    adw_entry_row_add_suffix (ADW_ENTRY_ROW (popover->date_dialog->date_from_row), date_from_calendar_button);
+    from_calendar = gtk_calendar_new ();
+    from_popover = gtk_popover_new ();
+    gtk_popover_set_child (GTK_POPOVER (from_popover), from_calendar);
+    gtk_menu_button_set_icon_name (GTK_MENU_BUTTON (date_from_calendar_button), "x-office-calendar-symbolic");
+    gtk_menu_button_set_popover (GTK_MENU_BUTTON (date_from_calendar_button), from_popover);
+
+    g_signal_connect (from_calendar, "day-selected", G_CALLBACK (calendar_date_selected), popover->date_dialog->date_from_row);
+    g_signal_connect (popover->date_dialog->date_from_row, "changed", G_CALLBACK (calendar_text_entered), popover->date_dialog);
+
+    /* To date row */
+    popover->date_dialog->date_to_row = g_object_new (ADW_TYPE_ENTRY_ROW,
+                                                      "title", _("To"),
+                                                      NULL);
+    adw_preferences_group_add (ADW_PREFERENCES_GROUP (date_range_group), popover->date_dialog->date_to_row);
+    date_to_calendar_button = gtk_menu_button_new ();
+    adw_entry_row_add_suffix (ADW_ENTRY_ROW (popover->date_dialog->date_to_row), date_to_calendar_button);
+    gtk_widget_add_css_class (GTK_WIDGET (date_to_calendar_button), "flat");
+    to_calendar = gtk_calendar_new ();
+    to_popover = gtk_popover_new ();
+    gtk_popover_set_child (GTK_POPOVER (to_popover), to_calendar);
+    gtk_menu_button_set_icon_name (GTK_MENU_BUTTON (date_to_calendar_button), "x-office-calendar-symbolic");
+    gtk_menu_button_set_popover (GTK_MENU_BUTTON (date_to_calendar_button), to_popover);
+
+    g_signal_connect (to_calendar, "day-selected", G_CALLBACK (calendar_date_selected), popover->date_dialog->date_to_row);
+    g_signal_connect (popover->date_dialog->date_to_row, "changed", G_CALLBACK (calendar_text_entered), popover->date_dialog);
+
+    adw_dialog_present (ADW_DIALOG (dialog), GTK_WIDGET (toplevel));
 }
 
 static void
@@ -500,6 +687,7 @@ nautilus_search_popover_class_init (NautilusSearchPopoverClass *klass)
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, filename_search_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusSearchPopover, full_text_search_button);
 
+    gtk_widget_class_bind_template_callback (widget_class, calendar_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, date_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, file_types_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, filename_search_button_clicked);

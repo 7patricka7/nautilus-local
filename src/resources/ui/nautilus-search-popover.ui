@@ -198,6 +198,7 @@
                             <property name="icon-name">x-office-calendar-symbolic</property>
                           </object>
                         </property>
+                        <signal name="clicked" handler="calendar_button_clicked" object="NautilusSearchPopover" swapped="no"/>
                         <style>
                           <class name="flat"/>
                         </style>
