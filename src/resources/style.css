@@ -327,3 +327,41 @@ label.encrypted_zip {
 rubberband {
   border-radius: 6px;
 }
+
+listview.entry-completion {
+  padding: 8px 0;
+}
+
+listview.entry-completion > row {
+  padding: 2px 10px;
+}
+
+/* Copied from Epiphany's location entry suggestion row style */
+listview.entry-completion > row:hover {
+  background-color: alpha(currentColor, .04);
+}
+
+/* Copied from Epiphany's location entry suggestion row style */
+listview.entry-completion > row:active {
+  background-color: alpha(currentColor, .08);
+}
+
+/* Copied from Epiphany's location entry suggestion row style */
+listview.entry-completion > row:selected {
+  background-color: alpha(currentColor, .1);
+}
+
+/* Copied from Epiphany's location entry suggestion row style */
+listview.entry-completion > row:selected:hover {
+  background-color: alpha(currentColor, .13);
+}
+
+/* Copied from Epiphany's location entry suggestion row style */
+listview.entry-completion > row:selected:active {
+  background-color: alpha(currentColor, .19);
+}
+
+listview.entry-completion > row > box {
+  border-spacing: 0;
+}
+

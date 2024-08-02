@@ -31,6 +31,8 @@
 #include "nautilus-location-entry.h"
 
 #include "nautilus-application.h"
+#include "nautilus-entry-completion-popover.h"
+#include "nautilus-location-entry-suggestion.h"
 #include "nautilus-scheme.h"
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
@@ -57,9 +59,9 @@ typedef struct _NautilusLocationEntryPrivate
 
     GtkEventController *controller;
 
-    GtkEntryCompletion *completion;
-    GtkListStore *completions_store;
-    GtkCellRenderer *completion_cell;
+    GtkWidget *completions_popover;
+    GListStore *completions_store;
+    glong completion_start;
 } NautilusLocationEntryPrivate;
 
 enum
@@ -114,17 +116,44 @@ nautilus_location_entry_set_text (NautilusLocationEntry *entry,
 }
 
 static void
-nautilus_location_entry_insert_prefix (NautilusLocationEntry *entry,
-                                       GtkEntryCompletion    *completion)
+update_entry_for_suggestion (NautilusLocationEntry *entry,
+                             gboolean               select_only_option)
 {
-    GtkEditable *delegate;
+    NautilusLocationEntryPrivate *priv;
+    GtkEditable *editable;
+    guint selected;
 
-    delegate = gtk_editable_get_delegate (GTK_EDITABLE (entry));
-    g_signal_handlers_block_by_func (delegate, G_CALLBACK (on_after_insert_text), entry);
+    priv = nautilus_location_entry_get_instance_private (entry);
+    selected = nautilus_entry_completion_popover_get_selected (NAUTILUS_ENTRY_COMPLETION_POPOVER (priv->completions_popover));
 
-    gtk_entry_completion_insert_prefix (completion);
+    if (select_only_option &&
+        g_list_model_get_n_items (G_LIST_MODEL (priv->completions_store)) == 1)
+    {
+        selected = 0;
+    }
 
-    g_signal_handlers_unblock_by_func (delegate, G_CALLBACK (on_after_insert_text), entry);
+    editable = GTK_EDITABLE (entry);
+
+    if (selected == GTK_INVALID_LIST_POSITION)
+    {
+        gtk_editable_delete_text (editable, priv->completion_start, -1);
+        gtk_editable_set_position (editable, -1);
+    }
+    else
+    {
+        GObject *item;
+        const char *suggestion;
+        const char *suffix;
+
+        item = g_list_model_get_item (G_LIST_MODEL (priv->completions_store), selected);
+        suggestion = nautilus_location_entry_suggestion_get_suggestion (NAUTILUS_LOCATION_ENTRY_SUGGESTION (item));
+        nautilus_location_entry_set_text (entry, suggestion);
+        gtk_editable_select_region (editable, priv->completion_start, -1);
+
+        /* Make the screen reader speak the name of the selected suggested subdirectory */
+        suffix = nautilus_location_entry_suggestion_get_suffix (NAUTILUS_LOCATION_ENTRY_SUGGESTION (item));
+        gtk_accessible_announce (GTK_ACCESSIBLE (entry), suffix, GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
+    }
 }
 
 static void
@@ -243,37 +272,9 @@ nautilus_location_entry_set_location (NautilusLocationEntry *entry,
     nautilus_location_entry_update_action (entry);
 
     /* invalidate the completions list */
-    gtk_list_store_clear (priv->completions_store);
+    g_list_store_remove_all (priv->completions_store);
 
     g_free (formatted_uri);
-}
-
-static void
-set_prefix_dimming (GtkCellRenderer *completion_cell,
-                    char            *user_location)
-{
-    g_autofree char *location_basename = NULL;
-    PangoAttrList *attrs;
-    PangoAttribute *attr;
-
-    /* Dim the prefixes of the completion rows, leaving the basenames
-     * highlighted. This makes it easier to find what you're looking for.
-     *
-     * Perhaps a better solution would be to *only* show the basenames, but
-     * it would take a reimplementation of GtkEntryCompletion to align the
-     * popover. */
-
-    location_basename = g_path_get_basename (user_location);
-
-    attrs = pango_attr_list_new ();
-
-    /* 55% opacity. This is the same as the dim-label style class in Adwaita. */
-    attr = pango_attr_foreground_alpha_new (36045);
-    attr->end_index = strlen (user_location) - strlen (location_basename);
-    pango_attr_list_insert (attrs, attr);
-
-    g_object_set (completion_cell, "attributes", attrs, NULL);
-    pango_attr_list_unref (attrs);
 }
 
 static gboolean
@@ -302,14 +303,18 @@ update_completions_store (gpointer callback_data)
     GtkEditable *editable;
     g_autofree char *absolute_location = NULL;
     g_autofree char *user_location = NULL;
+    g_autofree char *location_basename = NULL;
+    g_autofree char *location_dirname = NULL;
+    g_autofree char *location_dirname_full = NULL;
+    g_autoptr (GtkStringObject) completions_prefix = NULL;
     gboolean is_relative = FALSE;
     int start_sel;
     g_autofree char *uri_scheme = NULL;
     g_auto (GStrv) completions = NULL;
     char *completion;
     int i;
-    GtkTreeIter iter;
     guint current_dir_strlen;
+    guint n_old_items;
 
     entry = NAUTILUS_LOCATION_ENTRY (callback_data);
     priv = nautilus_location_entry_get_instance_private (entry);
@@ -334,7 +339,18 @@ update_completions_store (gpointer callback_data)
     }
 
     g_strstrip (user_location);
-    set_prefix_dimming (priv->completion_cell, user_location);
+
+    /* Dim the prefixes of the completion rows, leaving the basenames
+     * highlighted. This makes it easier to find what you're looking for.
+     *
+     * Perhaps a better solution would be to *only* show the basenames, but
+     * it would take a reimplementation of GtkEntryCompletion to align the
+     * popover. */
+
+    location_basename = g_path_get_basename (user_location);
+    location_dirname = g_path_get_dirname (user_location);
+    location_dirname_full = g_strconcat (location_dirname, G_DIR_SEPARATOR_S, NULL);
+    completions_prefix = gtk_string_object_new (location_dirname_full);
 
     uri_scheme = g_uri_parse_scheme (user_location);
 
@@ -350,12 +366,16 @@ update_completions_store (gpointer callback_data)
 
     completions = g_filename_completer_get_completions (priv->completer, absolute_location);
 
+    priv->completion_start = g_utf8_strlen (absolute_location, -1);
+
     /* populate the completions model */
-    gtk_list_store_clear (priv->completions_store);
+    n_old_items = g_list_model_get_n_items (G_LIST_MODEL (priv->completions_store));
 
     current_dir_strlen = strlen (priv->current_directory);
     for (i = 0; completions[i] != NULL; i++)
     {
+        g_autoptr (NautilusLocationEntrySuggestion) suggestion = NULL;
+
         completion = completions[i];
 
         if (is_relative && strlen (completion) >= current_dir_strlen)
@@ -370,17 +390,18 @@ update_completions_store (gpointer callback_data)
             }
         }
 
-        gtk_list_store_append (priv->completions_store, &iter);
-        gtk_list_store_set (priv->completions_store, &iter, 0, completion, -1);
+        suggestion = nautilus_location_entry_suggestion_new (completions_prefix, completion);
+        g_list_store_append (priv->completions_store, suggestion);
     }
 
-    /* refilter the completions dropdown */
-    gtk_entry_completion_complete (priv->completion);
+    /* The old items are removed after inserting the new ones so the model don't
+     * get empty before we refill it, as it makes the popover flash.
+     */
+    g_list_store_splice (priv->completions_store, 0, n_old_items, NULL, 0);
 
     if (priv->idle_insert_completion)
     {
-        /* insert the completion */
-        nautilus_location_entry_insert_prefix (entry, priv->completion);
+        update_entry_for_suggestion (entry, TRUE);
     }
 
     return FALSE;
@@ -414,7 +435,6 @@ finalize (GObject *object)
     g_object_unref (priv->completer);
 
     g_clear_object (&priv->last_location);
-    g_clear_object (&priv->completion);
     g_clear_object (&priv->completions_store);
     g_free (priv->current_directory);
 
@@ -437,8 +457,31 @@ nautilus_location_entry_dispose (GObject *object)
         priv->idle_id = 0;
     }
 
+    g_clear_pointer (&priv->completions_popover, gtk_widget_unparent);
 
     G_OBJECT_CLASS (nautilus_location_entry_parent_class)->dispose (object);
+}
+
+static void
+nautilus_location_entry_size_allocate (GtkWidget *widget,
+                                       int        width,
+                                       int        height,
+                                       int        baseline)
+{
+    NautilusLocationEntry *entry;
+    NautilusLocationEntryPrivate *priv;
+
+    entry = NAUTILUS_LOCATION_ENTRY (widget);
+    priv = nautilus_location_entry_get_instance_private (entry);
+
+    GTK_WIDGET_CLASS (nautilus_location_entry_parent_class)->size_allocate (widget, width, height, baseline);
+
+    /* Ensure the completions popover is always as wide as the entry, mimicking GtkEntryCompletion */
+    gtk_widget_set_size_request (priv->completions_popover,
+                                 gtk_widget_get_allocated_width (widget), -1);
+    gtk_widget_queue_resize (priv->completions_popover);
+    gtk_popover_present (GTK_POPOVER (priv->completions_popover));
+    gtk_widget_grab_focus (priv->completions_popover);
 }
 
 static void
@@ -645,15 +688,90 @@ nautilus_location_entry_cancel (NautilusLocationEntry *entry)
 }
 
 static void
+activate_completion_item (NautilusLocationEntry *entry,
+                          guint                  position)
+{
+    NautilusLocationEntryPrivate *priv;
+    NautilusLocationEntrySuggestion *entry_suggestion;
+    const char *suggestion;
+
+    priv = nautilus_location_entry_get_instance_private (entry);
+
+    entry_suggestion = g_list_model_get_item (G_LIST_MODEL (priv->completions_store), position);
+    suggestion = nautilus_location_entry_suggestion_get_suggestion (entry_suggestion);
+
+    nautilus_location_entry_set_text (entry, suggestion);
+    gtk_popover_popdown (GTK_POPOVER (priv->completions_popover));
+}
+
+static void
+completion_popover_notify_selected_cb (GObject      *object,
+                                       GAsyncResult *result,
+                                       gpointer      user_data)
+{
+    NautilusLocationEntry *entry = NAUTILUS_LOCATION_ENTRY (object);
+
+    update_entry_for_suggestion (entry, FALSE);
+}
+
+static void
+item_pressed_cb (GtkListItem *item,
+                 int          n_click,
+                 double       x,
+                 double       y,
+                 GtkGesture  *gesture)
+{
+    GtkWidget *widget;
+    GtkWidget *completion_popover;
+    guint position;
+
+    widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
+    completion_popover = gtk_widget_get_ancestor (widget, NAUTILUS_TYPE_ENTRY_COMPLETION_POPOVER);
+    position = gtk_list_item_get_position (item);
+
+    nautilus_entry_completion_popover_set_selected (NAUTILUS_ENTRY_COMPLETION_POPOVER (completion_popover), position);
+}
+
+static void
+item_released_cb (GtkListItem *item,
+                  int          n_click,
+                  double       x,
+                  double       y,
+                  GtkGesture  *gesture)
+{
+    GtkWidget *widget;
+    GtkWidget *entry;
+    guint position;
+
+    widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
+    entry = gtk_widget_get_ancestor (widget, NAUTILUS_TYPE_LOCATION_ENTRY);
+    position = gtk_list_item_get_position (item);
+
+    /* We only want to handle clicks with press and release on the same row */
+    if (!gtk_widget_contains (widget, x, y))
+    {
+        gtk_gesture_set_state (gesture, GTK_EVENT_SEQUENCE_DENIED);
+        return;
+    }
+
+    gtk_gesture_set_state (gesture, GTK_EVENT_SEQUENCE_CLAIMED);
+    activate_completion_item (NAUTILUS_LOCATION_ENTRY (entry), position);
+}
+
+static void
 nautilus_location_entry_class_init (NautilusLocationEntryClass *class)
 {
     GObjectClass *gobject_class;
+    GtkWidgetClass *widget_class;
     GtkEntryClass *entry_class;
     g_autoptr (GtkShortcut) shortcut = NULL;
 
     gobject_class = G_OBJECT_CLASS (class);
     gobject_class->dispose = nautilus_location_entry_dispose;
     gobject_class->finalize = finalize;
+
+    widget_class = GTK_WIDGET_CLASS (class);
+    widget_class->size_allocate = nautilus_location_entry_size_allocate;
 
     entry_class = GTK_ENTRY_CLASS (class);
     entry_class->activate = nautilus_location_entry_activate;
@@ -677,6 +795,14 @@ nautilus_location_entry_class_init (NautilusLocationEntryClass *class)
                                     NULL, NULL,
                                     g_cclosure_marshal_generic,
                                     G_TYPE_NONE, 1, G_TYPE_FILE);
+
+    gtk_widget_class_set_template_from_resource (widget_class, "/org/gnome/nautilus/ui/nautilus-location-entry.ui");
+
+    gtk_widget_class_bind_template_child_private (widget_class, NautilusLocationEntry, completions_popover);
+
+    gtk_widget_class_bind_template_callback (widget_class, completion_popover_notify_selected_cb);
+    gtk_widget_class_bind_template_callback (widget_class, item_pressed_cb);
+    gtk_widget_class_bind_template_callback (widget_class, item_released_cb);
 
     shortcut = gtk_shortcut_new (gtk_keyval_trigger_new (GDK_KEY_Escape, 0),
                                  gtk_signal_action_new ("cancel"));
@@ -759,6 +885,10 @@ nautilus_location_entry_init (NautilusLocationEntry *entry)
 
     priv = nautilus_location_entry_get_instance_private (entry);
 
+    g_type_ensure (NAUTILUS_TYPE_ENTRY_COMPLETION_POPOVER);
+
+    gtk_widget_init_template (GTK_WIDGET (entry));
+
     gtk_entry_set_input_purpose (GTK_ENTRY (entry), GTK_INPUT_PURPOSE_URL);
     gtk_entry_set_input_hints (GTK_ENTRY (entry), GTK_INPUT_HINT_NO_SPELLCHECK | GTK_INPUT_HINT_NO_EMOJI);
 
@@ -803,24 +933,8 @@ nautilus_location_entry_init (NautilusLocationEntry *entry)
                             G_CALLBACK (on_after_delete_text),
                             entry);
 
-    priv->completion = gtk_entry_completion_new ();
-    priv->completions_store = gtk_list_store_new (1, G_TYPE_STRING);
-    gtk_entry_completion_set_model (priv->completion, GTK_TREE_MODEL (priv->completions_store));
-
-    g_object_set (priv->completion,
-                  "text-column", 0,
-                  "inline-completion", FALSE,
-                  "inline-selection", TRUE,
-                  "popup-single-match", TRUE,
-                  NULL);
-
-    priv->completion_cell = gtk_cell_renderer_text_new ();
-    g_object_set (priv->completion_cell, "xpad", 6, NULL);
-
-    gtk_cell_layout_pack_start (GTK_CELL_LAYOUT (priv->completion), priv->completion_cell, FALSE);
-    gtk_cell_layout_add_attribute (GTK_CELL_LAYOUT (priv->completion), priv->completion_cell, "text", 0);
-
-    gtk_entry_set_completion (GTK_ENTRY (entry), priv->completion);
+    priv->completions_store = g_list_store_new (NAUTILUS_TYPE_LOCATION_ENTRY_SUGGESTION);
+    nautilus_entry_completion_popover_set_model (NAUTILUS_ENTRY_COMPLETION_POPOVER (priv->completions_popover), G_LIST_MODEL (priv->completions_store));
 }
 
 GtkWidget *
