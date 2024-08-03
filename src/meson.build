@@ -1,8 +1,16 @@
+gresource_conf = configuration_data()
+gresource_conf.set('appstream_file', appdata.full_path())
+
+gresource_file = configure_file(
+  input: join_paths('resources', 'nautilus.gresource.xml'),
+  output: 'nautilus.gresource.xml',
+  configuration: gresource_conf
+)
+
 resources = gnome.compile_resources(
   'nautilus-resources',
-  join_paths(
-    'resources', 'nautilus.gresource.xml'
-  ),
+  gresource_file,
+  dependencies: [appdata],
   source_dir: 'resources',
   c_name: 'nautilus',
   extra_args: '--manual-register'
