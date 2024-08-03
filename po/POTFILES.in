@@ -43,6 +43,7 @@ src/nautilus-location-banner.c
 src/nautilus-location-entry.c
 src/nautilus-main.c
 src/nautilus-mime-actions.c
+src/nautilus-multiple-conflict-dialog.c
 src/nautilus-network-address-bar.c
 src/nautilus-network-cell.c
 src/nautilus-network-view.c
@@ -85,6 +86,7 @@ src/resources/ui/nautilus-files-view-select-items.ui
 src/resources/ui/nautilus-files-view.ui
 src/resources/ui/nautilus-grid-cell.ui
 src/resources/ui/nautilus-history-controls.ui
+src/resources/ui/nautilus-multiple-conflict-dialog.ui
 src/resources/ui/nautilus-name-cell.ui
 src/resources/ui/nautilus-network-address-bar.ui
 src/resources/ui/nautilus-network-cell.ui

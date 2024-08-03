@@ -169,6 +169,8 @@ libnautilus_sources = [
   'nautilus-file-conflict-dialog.h',
   'nautilus-filename-validator.c',
   'nautilus-filename-validator.h',
+  'nautilus-multiple-conflict-dialog.c',
+  'nautilus-multiple-conflict-dialog.h',
   'nautilus-rename-file-popover.c',
   'nautilus-rename-file-popover.h',
   'nautilus-network-address-bar.c',
