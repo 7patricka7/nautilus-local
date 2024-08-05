@@ -5382,6 +5382,17 @@ out:
 }
 
 static void
+free_file_data (gpointer data)
+{
+    FileData *file_data = (FileData *) data;
+    if (file_data)
+    {
+        g_object_unref (file_data->dest);
+        g_free (file_data);
+    }
+}
+
+static void
 copy_files (CopyMoveJob  *job,
             const char   *dest_fs_id,
             SourceInfo   *source_info,
@@ -5399,11 +5410,49 @@ copy_files (CopyMoveJob  *job,
     char *dest_fs_type;
     GFileInfo *inf;
     gboolean reset_perms;
+    GList *files_data = NULL;
+    GList *conflict_files = NULL;
 
     dest_fs_type = NULL;
     reset_perms = FALSE;
 
     common = &job->common;
+
+    for (l = job->files;
+         l != NULL && !job_aborted (common);
+         l = l->next)
+    {
+        src = l->data;
+        g_autofree gchar *filename = g_file_get_basename (src);
+
+        if (job->destination)
+        {
+            dest = g_object_ref (job->destination);
+        }
+        else
+        {
+            dest = g_file_get_parent (src);
+        }
+
+        if (dest)
+        {
+            GFile *dest_file = g_file_get_child (dest, filename);
+
+            FileData *file_data = g_new (FileData, 1);
+            file_data->src = src;
+            file_data->dest = dest_file;
+
+            if (g_file_query_exists (dest_file, NULL))
+            {
+                file_data->conflict = TRUE;
+                conflict_files = g_list_append (conflict_files, file_data);
+            }
+
+            files_data = g_list_append (files_data, file_data);
+
+            g_object_unref (dest);
+        }
+    }
 
     report_copy_progress (job, source_info, transfer_info);
 
@@ -5471,6 +5520,7 @@ copy_files (CopyMoveJob  *job,
     }
 
     g_free (dest_fs_type);
+    g_list_free_full (files_data, free_file_data);
 }
 
 static void

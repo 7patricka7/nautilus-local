@@ -27,7 +27,9 @@
 #include <gio/gio.h>
 #include <gnome-autoar/gnome-autoar.h>
 
+#include "nautilus-file.h"
 #include "nautilus-file-operations-dbus-data.h"
+#include "nautilus-operations-ui-manager.h"
 
 #define SECONDS_NEEDED_FOR_APROXIMATE_TRANSFER_RATE 1
 
@@ -48,6 +50,17 @@ typedef void (* NautilusMountCallback)     (GVolume    *volume,
 typedef void (* NautilusUnmountCallback)   (gpointer    callback_data);
 typedef void (* NautilusExtractCallback)   (GList    *outputs,
                                             gpointer  callback_data);
+typedef struct
+{
+    GFile *src;
+    GFile *dest;
+
+    NautilusFile *nautilus_src;
+    NautilusFile *nautilus_dest;
+
+    gboolean conflict;
+    FileConflictResponse *response;
+} FileData;
 
 void nautilus_file_operations_copy_move   (const GList                    *item_uris,
                                            const char                     *target_dir_uri,
