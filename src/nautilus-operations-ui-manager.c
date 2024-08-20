@@ -1,3 +1,4 @@
+#include <adwaita.h>
 #include <glib/gi18n.h>
 
 #include "nautilus-operations-ui-manager.h"
@@ -6,6 +7,7 @@
 #include "nautilus-file-operations.h"
 #include "nautilus-file-conflict-dialog.h"
 #include "nautilus-mime-actions.h"
+#include "nautilus-multiple-conflict-dialog.h"
 #include "nautilus-program-choosing.h"
 
 typedef struct
@@ -115,6 +117,18 @@ typedef struct
     gulong source_handler_id;
     gulong destination_handler_id;
 } FileConflictDialogData;
+
+typedef struct
+{
+    ContextInvokeData parent_type;
+
+    GtkWindow *parent;
+
+    GList *conflicts;
+
+    NautilusMultipleConflictDialog *dialog;
+    FileConflictResponse *dialog_response;
+} MultipleFilesConflictData;
 
 void
 file_conflict_response_free (FileConflictResponse *response)
@@ -422,6 +436,26 @@ copy_move_conflict_on_file_list_ready (GList    *files,
 }
 
 static void
+on_multiple_conflict_dialog_closing (AdwDialog *dialog,
+                                     gpointer   user_data)
+{
+    MultipleFilesConflictData *data = user_data;
+
+    adw_dialog_force_close (ADW_DIALOG (data->dialog));
+
+    for (GList *l = data->conflicts; l != NULL; l = l->next)
+    {
+        FileData *conflict = (FileData *) l->data;
+        conflict->nautilus_src = nautilus_file_get (conflict->src);
+        conflict->nautilus_dest = nautilus_file_get (conflict->dest);
+
+        nautilus_file_unref (conflict->nautilus_src);
+        nautilus_file_unref (conflict->nautilus_dest);
+    }
+    invoke_main_context_completed (user_data);
+}
+
+static void
 on_conflict_dialog_closing (GtkWindow *dialog,
                             gpointer   user_data)
 {
@@ -470,6 +504,26 @@ on_conflict_dialog_closing (GtkWindow *dialog,
 }
 
 static gboolean
+run_multiple_file_conflict_dialog (gpointer user_data)
+{
+    MultipleFilesConflictData *data = user_data;
+
+    data->dialog = nautilus_multiple_conflict_dialog_new ();
+
+    for (GList *l = data->conflicts; l != NULL; l = l->next)
+    {
+        FileData *conflict = (FileData *) l->data;
+        conflict->nautilus_src = nautilus_file_get (conflict->src);
+        conflict->nautilus_dest = nautilus_file_get (conflict->dest);
+    }
+
+    g_signal_connect (data->dialog, "close-attempt", G_CALLBACK (on_multiple_conflict_dialog_closing), data);
+    adw_dialog_present (ADW_DIALOG (data->dialog), GTK_WIDGET (data->parent));
+
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean
 run_file_conflict_dialog (gpointer user_data)
 {
     FileConflictDialogData *data = user_data;
@@ -502,6 +556,24 @@ run_file_conflict_dialog (gpointer user_data)
     g_list_free (files);
 
     return G_SOURCE_REMOVE;
+}
+
+void
+copy_move_multiple_conflict_ask_user_action (GtkWindow *parent_window,
+                                             GList     *conflict_files)
+{
+    MultipleFilesConflictData *data;
+
+    data = g_slice_new0 (MultipleFilesConflictData);
+    data->parent = parent_window;
+
+    data->conflicts = conflict_files;
+
+    invoke_main_context_sync (NULL,
+                              run_multiple_file_conflict_dialog,
+                              data);
+
+    g_slice_free (MultipleFilesConflictData, data);
 }
 
 FileConflictResponse *

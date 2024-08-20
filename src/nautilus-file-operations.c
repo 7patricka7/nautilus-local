@@ -4756,6 +4756,21 @@ query_fs_type (GFile        *file,
     return ret;
 }
 
+static void
+handle_multiple_copy_move_conflict (CommonJob *job,
+                                    GList     *conflict_files,
+                                    GFile     *dest_dir)
+{
+    g_timer_stop (job->time);
+    nautilus_progress_info_pause (job->progress);
+
+    copy_move_multiple_conflict_ask_user_action (job->parent_window,
+                                                 conflict_files);
+
+    nautilus_progress_info_resume (job->progress);
+    g_timer_continue (job->time);
+}
+
 static FileConflictResponse *
 handle_copy_move_conflict (CommonJob *job,
                            GFile     *src,
@@ -5454,6 +5469,7 @@ copy_files (CopyMoveJob  *job,
         }
     }
 
+    handle_multiple_copy_move_conflict (common, conflict_files, dest);
     report_copy_progress (job, source_info, transfer_info);
 
     /* Query the source dir, not the file because if it's a symlink we'll follow it */
