@@ -32,6 +32,12 @@ G_DECLARE_FINAL_TYPE (NautilusMultipleConflictDialog, nautilus_multiple_conflict
 
 NautilusMultipleConflictDialog* nautilus_multiple_conflict_dialog_new (void);
 
+void nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConflictDialog *self,
+                                                          GList                          *conflicts,
+                                                          GList                          *dest_names,
+                                                          GList                          *dest_dates,
+                                                          GList                          *src_dates);
+
 void nautilus_multiple_conflict_dialog_delay_buttons_activation (NautilusMultipleConflictDialog *self);
 
 G_END_DECLS

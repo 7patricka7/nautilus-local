@@ -140,6 +140,33 @@ file_conflict_response_free (FileConflictResponse *response)
 }
 
 static void
+set_multiple_conflict_rows (MultipleFilesConflictData *data)
+{
+    GList *destination_names = NULL;
+    GList *destination_dates = NULL;
+    GList *source_dates = NULL;
+
+    for (GList *l = data->conflicts; l != NULL; l = l->next)
+    {
+        FileData *conflict = (FileData *) l->data;
+        destination_names = g_list_append (destination_names,
+                                           (gchar *) nautilus_file_get_display_name (conflict->nautilus_dest));
+        destination_dates = g_list_append (destination_dates,
+                                           nautilus_file_get_string_attribute_with_default (conflict->nautilus_dest,
+                                                                                            "date_modified"));
+        source_dates = g_list_append (source_dates,
+                                      nautilus_file_get_string_attribute_with_default (conflict->nautilus_src,
+                                                                                       "date_modified"));
+    }
+
+    nautilus_multiple_conflict_dialog_set_conflict_rows (data->dialog,
+                                                         data->conflicts,
+                                                         destination_names,
+                                                         destination_dates,
+                                                         source_dates);
+}
+
+static void
 set_copy_move_dialog_text (FileConflictDialogData *data)
 {
     g_autofree gchar *primary_text = NULL;
@@ -523,6 +550,8 @@ run_multiple_file_conflict_dialog (gpointer user_data)
         conflict->nautilus_src = nautilus_file_get (conflict->src);
         conflict->nautilus_dest = nautilus_file_get (conflict->dest);
     }
+
+    set_multiple_conflict_rows (data);
 
     g_signal_connect (data->dialog, "close-attempt", G_CALLBACK (on_multiple_conflict_dialog_closing), data);
     adw_dialog_present (ADW_DIALOG (data->dialog), GTK_WIDGET (data->parent));

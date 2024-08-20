@@ -36,6 +36,45 @@ struct _NautilusMultipleConflictDialog
 
 G_DEFINE_TYPE (NautilusMultipleConflictDialog, nautilus_multiple_conflict_dialog, ADW_TYPE_DIALOG);
 
+void
+nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConflictDialog *self,
+                                                     GList                          *conflicts,
+                                                     GList                          *dest_names,
+                                                     GList                          *dest_dates,
+                                                     GList                          *src_dates)
+{
+    GtkWidget *row, *check_button;
+    GList *conflict, *dest_name, *dest_date, *src_date;
+    guint num_conflicts;
+
+    num_conflicts = g_list_length (dest_names);
+    g_autofree gchar *label = g_strdup_printf (_("%d files that are being pasted have the same "
+                                                 "name as files that are already present"), num_conflicts);
+
+    gtk_label_set_text (GTK_LABEL (self->conflict_number_label), label);
+
+    for (conflict = conflicts, dest_name = dest_names, dest_date = dest_dates, src_date = src_dates;
+         conflict != NULL && dest_name != NULL && dest_date != NULL && src_date != NULL;
+         conflict = conflict->next, dest_name = dest_name->next, dest_date = dest_date->next, src_date = src_date->next)
+    {
+        row = adw_action_row_new ();
+        adw_preferences_row_set_title (ADW_PREFERENCES_ROW (row), (const gchar *) dest_name->data);
+
+        g_autofree gchar *subtitle = g_strdup_printf ("Modified %s 🡢 %s",
+                                                      (char *) src_date->data,
+                                                      (char *) dest_date->data);
+        adw_action_row_set_subtitle (ADW_ACTION_ROW (row), subtitle);
+
+        check_button = gtk_check_button_new ();
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (check_button), TRUE);
+        adw_action_row_set_activatable_widget (ADW_ACTION_ROW (row), check_button);
+
+        adw_action_row_add_prefix (ADW_ACTION_ROW (row), check_button);
+
+        gtk_list_box_append (GTK_LIST_BOX (self->replacement_list_box), row);
+    }
+}
+
 static void
 replace_button_clicked (GtkButton                      *button,
                         NautilusMultipleConflictDialog *dialog)
