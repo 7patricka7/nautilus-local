@@ -35,6 +35,7 @@ struct _NautilusFileChooser
     NautilusMode mode;
     char *accept_label;
     char *suggested_name;
+    char *previous_name;
 
     GtkWidget *split_view;
     GtkWidget *places_sidebar;
@@ -397,6 +398,7 @@ open_filename_entry (NautilusFileChooser *self)
     const char *filename = gtk_editable_get_text (GTK_EDITABLE (self->filename_entry));
     int extension_offset = nautilus_filename_get_extension_char_offset (filename);
     gtk_editable_select_region (GTK_EDITABLE (self->filename_entry), 0, extension_offset);
+    self->previous_name = g_strdup (filename);
 }
 
 static void
@@ -572,6 +574,7 @@ nautilus_file_chooser_finalize (GObject *object)
 
     g_free (self->accept_label);
     g_free (self->suggested_name);
+    g_free (self->previous_name);
 
     G_OBJECT_CLASS (nautilus_file_chooser_parent_class)->finalize (object);
 }
@@ -688,6 +691,11 @@ on_filename_entry_cancel (GtkWidget *widget,
 
     gtk_stack_set_visible_child (GTK_STACK (self->filename_widget),
                                  self->filename_button_container);
+
+    if (self->previous_name != NULL)
+    {
+        gtk_editable_set_text (GTK_EDITABLE (self->filename_entry), self->previous_name);
+    }
 
     return TRUE;
 }
