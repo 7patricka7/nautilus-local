@@ -264,6 +264,14 @@ extension_combo_row_setup (NautilusCompressDialog *self)
                                        ".tar.xz",
                                        _("TAR (.tar.xz)"),
                                        _("Smaller archives but Linux and Mac only."));
+
+    g_list_store_append (store, item);
+    g_object_unref (item);
+    item = nautilus_compress_item_new (NAUTILUS_COMPRESSION_TAR_GZIP,
+                                       ".tar.gz",
+                                       _("TAR (.tar.gz)"),
+                                       _("Larger archives but Linux and Mac only."));
+
     g_list_store_append (store, item);
     g_object_unref (item);
     item = nautilus_compress_item_new (NAUTILUS_COMPRESSION_7ZIP,

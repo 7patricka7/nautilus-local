@@ -2333,6 +2333,13 @@ create_archive_callback (const char *archive_name,
         }
         break;
 
+        case NAUTILUS_COMPRESSION_TAR_GZIP:
+        {
+            format = AUTOAR_FORMAT_TAR;
+            filter = AUTOAR_FILTER_GZIP;
+        }
+        break;
+
         case NAUTILUS_COMPRESSION_7ZIP:
         {
             format = AUTOAR_FORMAT_7ZIP;
