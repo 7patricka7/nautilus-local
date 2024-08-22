@@ -10040,6 +10040,7 @@ create_inner_view (NautilusFilesView *self,
     if (mode != NAUTILUS_MODE_BROWSE)
     {
         nautilus_list_base_disable_dnd (priv->list_base);
+        nautilus_list_base_force_double_click_for_files (priv->list_base);
     }
 
     gtk_overlay_set_child (GTK_OVERLAY (priv->overlay), GTK_WIDGET (priv->list_base));
