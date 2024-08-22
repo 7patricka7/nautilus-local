@@ -257,6 +257,16 @@
                                             handler="on_filename_entry_focus_leave" object="NautilusFileChooser" swapped="yes"/>
                                   </object>
                                 </child>
+                                <child>
+                                  <object class="GtkShortcutController">
+                                    <property name="scope">local</property>
+                                    <child>
+                                      <object class="GtkShortcut" id="filename_entry_esc_shortcut">
+                                        <property name="trigger">Escape</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                </child>
                               </object>
                             </child>
                           </object>

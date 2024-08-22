@@ -49,6 +49,7 @@ struct _NautilusFileChooser
     GtkWidget *filename_button_container;
     GtkWidget *filename_undo_button;
     GtkWidget *filename_entry;
+    GtkShortcut *filename_entry_esc_shortcut;
     GtkWidget *new_folder_button;
 
     NautilusFilenameValidator *validator;
@@ -678,9 +679,24 @@ nautilus_file_chooser_constructed (GObject *object)
     }
 }
 
+static gboolean
+on_filename_entry_cancel (GtkWidget *widget,
+                          GVariant  *args,
+                          gpointer   user_data)
+{
+    NautilusFileChooser *self = NAUTILUS_FILE_CHOOSER (user_data);
+
+    gtk_stack_set_visible_child (GTK_STACK (self->filename_widget),
+                                 self->filename_button_container);
+
+    return TRUE;
+}
+
 static void
 nautilus_file_chooser_init (NautilusFileChooser *self)
 {
+    GtkShortcutAction *cb_action;
+
     g_type_ensure (NAUTILUS_TYPE_FILENAME_VALIDATOR);
     g_type_ensure (NAUTILUS_TYPE_TOOLBAR);
     g_type_ensure (NAUTILUS_TYPE_GTK_PLACES_SIDEBAR);
@@ -707,6 +723,11 @@ nautilus_file_chooser_init (NautilusFileChooser *self)
     gtk_event_controller_set_propagation_phase (controller, GTK_PHASE_CAPTURE);
     gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (controller), 0);
     g_signal_connect (controller, "pressed", G_CALLBACK (on_click_gesture_pressed), self);
+
+    /* Initialize filename entry signals */
+    cb_action = gtk_callback_action_new ((GtkShortcutFunc) on_filename_entry_cancel,
+                                         self, NULL);
+    gtk_shortcut_set_action (self->filename_entry_esc_shortcut, cb_action);
 
     /* The factory is set in the ui, but we need to set the popup (list) factory
      * in code to make the checkmark appear correctly. */
@@ -745,6 +766,7 @@ nautilus_file_chooser_class_init (NautilusFileChooserClass *klass)
     gtk_widget_class_bind_template_child (widget_class, NautilusFileChooser, filename_button_container);
     gtk_widget_class_bind_template_child (widget_class, NautilusFileChooser, filename_undo_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusFileChooser, filename_entry);
+    gtk_widget_class_bind_template_child (widget_class, NautilusFileChooser, filename_entry_esc_shortcut);
     gtk_widget_class_bind_template_child (widget_class, NautilusFileChooser, new_folder_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusFileChooser, validator);
 
