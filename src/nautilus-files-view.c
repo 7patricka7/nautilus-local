@@ -7606,6 +7606,7 @@ real_update_actions_state (NautilusFilesView *view)
 {
     NautilusFilesViewPrivate *priv = nautilus_files_view_get_instance_private (view);
     NautilusMode mode = nautilus_window_slot_get_mode (priv->slot);
+    gboolean mode_is_save = (mode == NAUTILUS_MODE_SAVE_FILE || mode == NAUTILUS_MODE_SAVE_FILES);
     g_autolist (NautilusFile) selection = NULL;
     GList *l;
     gint selection_count;
@@ -7842,7 +7843,7 @@ real_update_actions_state (NautilusFilesView *view)
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "copy");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
-                                 mode == NAUTILUS_MODE_BROWSE &&
+                                 (mode == NAUTILUS_MODE_BROWSE || mode_is_save) &&
                                  can_copy_files);
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "create-link-in-place");
@@ -7981,7 +7982,7 @@ real_update_actions_state (NautilusFilesView *view)
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "paste");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
-                                 mode == NAUTILUS_MODE_BROWSE &&
+                                 (mode == NAUTILUS_MODE_BROWSE || mode_is_save) &&
                                  !is_read_only &&
                                  !selection_contains_recent &&
                                  !is_in_trash &&
@@ -7990,7 +7991,7 @@ real_update_actions_state (NautilusFilesView *view)
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "paste_accel");
     g_simple_action_set_enabled (G_SIMPLE_ACTION (action),
-                                 mode == NAUTILUS_MODE_BROWSE);
+                                 (mode == NAUTILUS_MODE_BROWSE || mode_is_save));
 
     action = g_action_map_lookup_action (G_ACTION_MAP (view_action_group),
                                          "paste-into");
@@ -8292,8 +8293,7 @@ update_selection_menu (NautilusFilesView *view,
                                               "open_in_view_submenu");
     nautilus_g_menu_replace_string_in_item (G_MENU (object), i,
                                             "hidden-when",
-                                            (!item_opens_in_view ||
-                                             mode != NAUTILUS_MODE_BROWSE) ? "action-missing" : NULL);
+                                            !item_opens_in_view ? "action-missing" : NULL);
 
     /* Drives */
     for (l = selection; l != NULL && (show_mount || show_unmount
@@ -8407,12 +8407,6 @@ update_selection_menu (NautilusFilesView *view,
         g_object_unref (menu_item);
     }
 
-    if (mode != NAUTILUS_MODE_BROWSE)
-    {
-        object = gtk_builder_get_object (builder, "move-copy-section");
-        g_menu_remove_all (G_MENU (object));
-    }
-
     if (!priv->scripts_menu_updated && mode == NAUTILUS_MODE_BROWSE)
     {
         update_scripts_menu (view, builder);
@@ -8434,19 +8428,11 @@ update_selection_menu (NautilusFilesView *view,
                                             "hidden-when",
                                             (!show_scripts) ? "action-missing" : NULL);
 
-    if (NAUTILUS_IS_NETWORK_VIEW (priv->list_base))
-    {
-        object = gtk_builder_get_object (builder, "move-copy-section");
-        g_menu_remove_all (G_MENU (object));
+    const char *view_name = NAUTILUS_IS_NETWORK_VIEW (priv->list_base) ? "network" : "normal";
 
-        object = gtk_builder_get_object (builder, "file-actions-section");
-        g_menu_remove_all (G_MENU (object));
-    }
-    else
-    {
-        object = gtk_builder_get_object (builder, "network-view-section");
-        g_menu_remove_all (G_MENU (object));
-    }
+    /* Filter  the menus at the end to not interfere with other checks */
+    nautilus_g_menu_model_set_for_view (G_MENU_MODEL (priv->selection_menu_model), view_name);
+    nautilus_g_menu_model_set_for_mode (G_MENU_MODEL (priv->selection_menu_model), mode);
 }
 
 static void
