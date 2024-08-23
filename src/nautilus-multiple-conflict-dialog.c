@@ -19,6 +19,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "nautilus-file-conflict-dialog.h"
+#include "nautilus-file-operations.h"
 #include "nautilus-multiple-conflict-dialog.h"
 #include "nautilus-operations-ui-manager.h"
 
@@ -35,6 +36,23 @@ struct _NautilusMultipleConflictDialog
 };
 
 G_DEFINE_TYPE (NautilusMultipleConflictDialog, nautilus_multiple_conflict_dialog, ADW_TYPE_DIALOG);
+
+static void
+on_check_button_toggle (GtkCheckButton *check_button,
+                        gpointer        user_data)
+{
+    GList *conflict = (GList *) user_data;
+    FileData *file_data = (FileData *) conflict->data;
+
+    if (gtk_check_button_get_active (check_button))
+    {
+        file_data->response->id = CONFLICT_RESPONSE_REPLACE;
+    }
+    else
+    {
+        file_data->response->id = CONFLICT_RESPONSE_SKIP;
+    }
+}
 
 void
 nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConflictDialog *self,
@@ -68,6 +86,12 @@ nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConflictDia
         check_button = gtk_check_button_new ();
         gtk_check_button_set_active (GTK_CHECK_BUTTON (check_button), TRUE);
         adw_action_row_set_activatable_widget (ADW_ACTION_ROW (row), check_button);
+        FileData *file_data = conflict->data;
+        file_data->response->id = CONFLICT_RESPONSE_REPLACE;
+        g_signal_connect (check_button,
+                          "toggled",
+                          G_CALLBACK (on_check_button_toggle),
+                          conflict);
 
         adw_action_row_add_prefix (ADW_ACTION_ROW (row), check_button);
 

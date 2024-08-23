@@ -4908,6 +4908,11 @@ copy_move_file (CopyMoveJob   *copy_job,
 
     job = (CommonJob *) copy_job;
 
+    if (*skipped_file == TRUE)
+    {
+        return;
+    }
+
     *skipped_file = FALSE;
 
     if (should_skip_file (job, src))
@@ -5409,6 +5414,7 @@ free_file_data (gpointer data)
     if (file_data)
     {
         g_object_unref (file_data->dest);
+        g_free (file_data->response);
         g_free (file_data);
     }
 }
@@ -5463,6 +5469,7 @@ copy_files (CopyMoveJob  *job,
             FileData *file_data = g_new (FileData, 1);
             file_data->src = src;
             file_data->dest = dest_file;
+            file_data->response = g_new (FileConflictResponse, 1);
 
             if (g_file_query_exists (dest_file, NULL))
             {
@@ -5509,11 +5516,14 @@ copy_files (CopyMoveJob  *job,
 
     unique_names = (job->destination == NULL);
     i = 0;
-    for (l = job->files;
-         l != NULL && !job_aborted (common);
-         l = l->next)
+
+    GList *fd;
+    for (fd = files_data, l = job->files;
+         fd != NULL && l != NULL && !job_aborted (common);
+         fd = fd->next, l = l->next)
     {
         src = l->data;
+        FileData *file_data = fd->data;
 
         same_fs = FALSE;
         if (dest_fs_id)
@@ -5531,13 +5541,26 @@ copy_files (CopyMoveJob  *job,
         }
         if (dest)
         {
+            gboolean overwrite = FALSE;
             skipped_file = FALSE;
+
+            if (dialog_response->id == CONFLICT_RESPONSE_REPLACE)
+            {
+                if (file_data->response->id == CONFLICT_RESPONSE_SKIP)
+                {
+                    skipped_file = TRUE;
+                }
+                else if (file_data->response->id == CONFLICT_RESPONSE_REPLACE)
+                {
+                    overwrite = TRUE;
+                }
+            }
             copy_move_file (job, src, dest,
                             same_fs, unique_names,
                             &dest_fs_type,
                             source_info, transfer_info,
                             job->debuting_files,
-                            FALSE, &skipped_file,
+                            overwrite, &skipped_file,
                             reset_perms);
             g_object_unref (dest);
 
