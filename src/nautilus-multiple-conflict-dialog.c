@@ -18,11 +18,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include "nautilus-file-conflict-dialog.h"
 #include "nautilus-multiple-conflict-dialog.h"
 
 struct _NautilusMultipleConflictDialog
 {
     AdwDialog parent_instance;
+
+    ConflictResponse dialog_response;
 
     GtkWidget *replacement_list_box;
     GtkWidget *conflict_number_label;
@@ -31,6 +34,22 @@ struct _NautilusMultipleConflictDialog
 };
 
 G_DEFINE_TYPE (NautilusMultipleConflictDialog, nautilus_multiple_conflict_dialog, ADW_TYPE_DIALOG);
+
+static void
+replace_button_clicked (GtkButton                      *button,
+                        NautilusMultipleConflictDialog *dialog)
+{
+    dialog->dialog_response = CONFLICT_RESPONSE_REPLACE;
+    adw_dialog_close (ADW_DIALOG (dialog));
+}
+
+static void
+cancel_button_clicked (GtkButton                      *button,
+                       NautilusMultipleConflictDialog *dialog)
+{
+    dialog->dialog_response = CONFLICT_RESPONSE_CANCEL;
+    adw_dialog_close (ADW_DIALOG (dialog));
+}
 
 static void
 nautilus_multiple_conflict_dialog_class_init (NautilusMultipleConflictDialogClass *klass)
@@ -43,12 +62,17 @@ nautilus_multiple_conflict_dialog_class_init (NautilusMultipleConflictDialogClas
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, conflict_number_label);
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, replace_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, cancel_button);
+
+    gtk_widget_class_bind_template_callback (widget_class, replace_button_clicked);
+    gtk_widget_class_bind_template_callback (widget_class, cancel_button_clicked);
 }
 
 static void
 nautilus_multiple_conflict_dialog_init (NautilusMultipleConflictDialog *self)
 {
     gtk_widget_init_template (GTK_WIDGET (self));
+
+    adw_dialog_set_can_close (ADW_DIALOG (self), FALSE);
 }
 
 NautilusMultipleConflictDialog *
