@@ -139,3 +139,9 @@ nautilus_multiple_conflict_dialog_delay_buttons_activation (NautilusMultipleConf
                            G_SOURCE_FUNC (activate_buttons),
                            self);
 }
+
+ConflictResponse
+nautilus_multiple_conflict_dialog_get_response (NautilusMultipleConflictDialog *dialog)
+{
+    return dialog->dialog_response;
+}

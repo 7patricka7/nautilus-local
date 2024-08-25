@@ -24,6 +24,8 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 
+#include "nautilus-file-conflict-dialog.h"
+
 G_BEGIN_DECLS
 
 #define NAUTILUS_TYPE_MULTIPLE_CONFLICT_DIALOG (nautilus_multiple_conflict_dialog_get_type())
@@ -39,5 +41,7 @@ void nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConfli
                                                           GList                          *src_dates);
 
 void nautilus_multiple_conflict_dialog_delay_buttons_activation (NautilusMultipleConflictDialog *self);
+
+ConflictResponse nautilus_multiple_conflict_dialog_get_response (NautilusMultipleConflictDialog *dialog);
 
 G_END_DECLS

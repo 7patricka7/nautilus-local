@@ -469,6 +469,11 @@ on_multiple_conflict_dialog_closing (AdwDialog *dialog,
                                      gpointer   user_data)
 {
     MultipleFilesConflictData *data = user_data;
+    ConflictResponse response;
+
+    response = nautilus_multiple_conflict_dialog_get_response (data->dialog);
+
+    data->dialog_response->id = response;
 
     adw_dialog_force_close (ADW_DIALOG (data->dialog));
 
@@ -594,24 +599,30 @@ run_file_conflict_dialog (gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
-void
+FileConflictResponse *
 copy_move_multiple_conflict_ask_user_action (GtkWindow *parent_window,
                                              gboolean   should_start_inactive,
                                              GList     *conflict_files)
 {
     MultipleFilesConflictData *data;
+    FileConflictResponse *response;
 
     data = g_slice_new0 (MultipleFilesConflictData);
     data->parent = parent_window;
     data->should_start_inactive = should_start_inactive;
 
     data->conflicts = conflict_files;
+    data->dialog_response = g_slice_new0 (FileConflictResponse);
+    data->dialog_response->new_name = NULL;
 
     invoke_main_context_sync (NULL,
                               run_multiple_file_conflict_dialog,
                               data);
 
+    response = g_steal_pointer (&data->dialog_response);
     g_slice_free (MultipleFilesConflictData, data);
+
+    return response;
 }
 
 FileConflictResponse *

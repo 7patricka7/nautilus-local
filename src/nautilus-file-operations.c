@@ -4756,21 +4756,25 @@ query_fs_type (GFile        *file,
     return ret;
 }
 
-static void
+static FileConflictResponse *
 handle_multiple_copy_move_conflict (CommonJob *job,
                                     GList     *conflict_files,
                                     GFile     *dest_dir)
 {
+    FileConflictResponse *response;
+
     g_timer_stop (job->time);
     nautilus_progress_info_pause (job->progress);
 
     gboolean should_start_inactive = is_long_job (job);
-    copy_move_multiple_conflict_ask_user_action (job->parent_window,
-                                                 should_start_inactive,
-                                                 conflict_files);
+    response = copy_move_multiple_conflict_ask_user_action (job->parent_window,
+                                                            should_start_inactive,
+                                                            conflict_files);
 
     nautilus_progress_info_resume (job->progress);
     g_timer_continue (job->time);
+
+    return response;
 }
 
 static FileConflictResponse *
@@ -5429,6 +5433,7 @@ copy_files (CopyMoveJob  *job,
     gboolean reset_perms;
     GList *files_data = NULL;
     GList *conflict_files = NULL;
+    FileConflictResponse *dialog_response;
 
     dest_fs_type = NULL;
     reset_perms = FALSE;
@@ -5471,7 +5476,15 @@ copy_files (CopyMoveJob  *job,
         }
     }
 
-    handle_multiple_copy_move_conflict (common, conflict_files, dest);
+    dialog_response = handle_multiple_copy_move_conflict (common, conflict_files, dest);
+
+    if (dialog_response->id == CONFLICT_RESPONSE_CANCEL)
+    {
+        file_conflict_response_free (dialog_response);
+        abort_job (&job->common);
+        goto copy_out;
+    }
+
     report_copy_progress (job, source_info, transfer_info);
 
     /* Query the source dir, not the file because if it's a symlink we'll follow it */
@@ -5537,6 +5550,7 @@ copy_files (CopyMoveJob  *job,
         i++;
     }
 
+copy_out:
     g_free (dest_fs_type);
     g_list_free_full (files_data, free_file_data);
 }
