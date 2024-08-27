@@ -124,6 +124,8 @@ typedef struct
 
     GtkWindow *parent;
 
+    gboolean should_start_inactive;
+
     GList *conflicts;
 
     NautilusMultipleConflictDialog *dialog;
@@ -510,6 +512,11 @@ run_multiple_file_conflict_dialog (gpointer user_data)
 
     data->dialog = nautilus_multiple_conflict_dialog_new ();
 
+    if (data->should_start_inactive)
+    {
+        nautilus_multiple_conflict_dialog_delay_buttons_activation (data->dialog);
+    }
+
     for (GList *l = data->conflicts; l != NULL; l = l->next)
     {
         FileData *conflict = (FileData *) l->data;
@@ -560,12 +567,14 @@ run_file_conflict_dialog (gpointer user_data)
 
 void
 copy_move_multiple_conflict_ask_user_action (GtkWindow *parent_window,
+                                             gboolean   should_start_inactive,
                                              GList     *conflict_files)
 {
     MultipleFilesConflictData *data;
 
     data = g_slice_new0 (MultipleFilesConflictData);
     data->parent = parent_window;
+    data->should_start_inactive = should_start_inactive;
 
     data->conflicts = conflict_files;
 

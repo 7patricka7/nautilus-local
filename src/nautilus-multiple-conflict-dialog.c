@@ -20,6 +20,7 @@
  */
 #include "nautilus-file-conflict-dialog.h"
 #include "nautilus-multiple-conflict-dialog.h"
+#include "nautilus-operations-ui-manager.h"
 
 struct _NautilusMultipleConflictDialog
 {
@@ -80,4 +81,22 @@ nautilus_multiple_conflict_dialog_new (void)
 {
     return NAUTILUS_MULTIPLE_CONFLICT_DIALOG (g_object_new (NAUTILUS_TYPE_MULTIPLE_CONFLICT_DIALOG,
                                                             NULL));
+}
+static gboolean
+activate_buttons (NautilusMultipleConflictDialog *self)
+{
+    gtk_widget_set_sensitive (GTK_WIDGET (self->cancel_button), TRUE);
+    gtk_widget_set_sensitive (GTK_WIDGET (self->replace_button), TRUE);
+    return G_SOURCE_REMOVE;
+}
+
+void
+nautilus_multiple_conflict_dialog_delay_buttons_activation (NautilusMultipleConflictDialog *self)
+{
+    gtk_widget_set_sensitive (self->cancel_button, FALSE);
+    gtk_widget_set_sensitive (self->replace_button, FALSE);
+
+    g_timeout_add_seconds (BUTTON_ACTIVATION_DELAY_IN_SECONDS,
+                           G_SOURCE_FUNC (activate_buttons),
+                           self);
 }
