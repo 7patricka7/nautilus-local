@@ -35,6 +35,7 @@
                 <property name="label" translatable="yes">_Paste</property>
                 <property name="use-underline">True</property>
                 <property name="visible" bind-source="rename_files" bind-property="active" bind-flags="sync-create" />
+                <signal name="clicked" handler="paste_button_clicked" object="NautilusMultipleConflictDialog" swapped="no"/>
                 <style>
                   <class name="suggested-action" />
                 </style>
@@ -141,7 +142,7 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkListBox">
+                      <object class="GtkListBox" id="rename_list_box">
                         <property name="selection-mode">0</property>
                         <style>
                           <class name="boxed-list" />

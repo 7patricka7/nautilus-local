@@ -30,6 +30,8 @@ struct _NautilusMultipleConflictDialog
     ConflictResponse dialog_response;
 
     GtkWidget *replacement_list_box;
+    GtkWidget *rename_list_box;
+    GtkWidget *rename_entry_row;
     GtkWidget *conflict_number_label;
     GtkWidget *cancel_button;
     GtkWidget *replace_button;
@@ -116,6 +118,14 @@ cancel_button_clicked (GtkButton                      *button,
 }
 
 static void
+paste_button_clicked (GtkButton                      *button,
+                      NautilusMultipleConflictDialog *dialog)
+{
+    dialog->dialog_response = CONFLICT_RESPONSE_RENAME;
+    adw_dialog_close (ADW_DIALOG (dialog));
+}
+
+static void
 nautilus_multiple_conflict_dialog_class_init (NautilusMultipleConflictDialogClass *klass)
 {
     GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
@@ -123,12 +133,15 @@ nautilus_multiple_conflict_dialog_class_init (NautilusMultipleConflictDialogClas
     gtk_widget_class_set_template_from_resource (widget_class, "/org/gnome/nautilus/ui/nautilus-multiple-conflict-dialog.ui");
 
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, replacement_list_box);
+    gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, rename_entry_row);
+    gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, rename_list_box);
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, conflict_number_label);
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, replace_button);
     gtk_widget_class_bind_template_child (widget_class, NautilusMultipleConflictDialog, cancel_button);
 
     gtk_widget_class_bind_template_callback (widget_class, replace_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, cancel_button_clicked);
+    gtk_widget_class_bind_template_callback (widget_class, paste_button_clicked);
 }
 
 static void
