@@ -4187,7 +4187,8 @@ static void copy_move_file (CopyMoveJob  *job,
                             GHashTable   *debuting_files,
                             gboolean      overwrite,
                             gboolean     *skipped_file,
-                            gboolean      reset_perms);
+                            gboolean      reset_perms,
+                            char         *rename_dest);
 
 typedef enum
 {
@@ -4438,7 +4439,7 @@ retry:
                                          g_file_info_get_name (info));
             copy_move_file (copy_job, src_file, *dest, same_fs, FALSE, &dest_fs_type,
                             source_info, transfer_info, NULL, FALSE, &local_skipped_file,
-                            reset_perms);
+                            reset_perms, NULL);
 
             if (local_skipped_file)
             {
@@ -4892,7 +4893,8 @@ copy_move_file (CopyMoveJob   *copy_job,
                 GHashTable    *debuting_files,
                 gboolean       overwrite,
                 gboolean      *skipped_file,
-                gboolean       reset_perms)
+                gboolean       reset_perms,
+                char          *rename_dest)
 {
     GFile *dest, *new_dest;
     g_autofree gchar *dest_uri = NULL;
@@ -5055,6 +5057,12 @@ retry:
     pdata.last_size = 0;
     pdata.source_info = source_info;
     pdata.transfer_info = transfer_info;
+
+    if (rename_dest != NULL)
+    {
+        dest = get_target_file_for_display_name (dest_dir,
+                                                 rename_dest);
+    }
 
     if (copy_job->is_move)
     {
@@ -5561,7 +5569,8 @@ copy_files (CopyMoveJob  *job,
                             source_info, transfer_info,
                             job->debuting_files,
                             overwrite, &skipped_file,
-                            reset_perms);
+                            reset_perms,
+                            file_data->response->new_name);
             g_object_unref (dest);
 
             if (skipped_file)
@@ -6232,7 +6241,7 @@ move_files (CopyMoveJob   *job,
                         same_fs, FALSE, dest_fs_type,
                         source_info, transfer_info,
                         job->debuting_files,
-                        fallback->overwrite, &skipped_file, FALSE);
+                        fallback->overwrite, &skipped_file, FALSE, NULL);
         i++;
 
         if (skipped_file)

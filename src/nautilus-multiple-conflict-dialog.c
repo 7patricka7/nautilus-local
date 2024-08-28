@@ -185,6 +185,9 @@ rename_entry_row_changed (GtkEditable                    *entry_row,
                                                    (char *) dest_name->data,
                                                    new_dest);
 
+        FileData *file_data = (FileData *) conflict->data;
+        file_data->response->new_name = new_dest;
+
         adw_preferences_row_set_title (ADW_PREFERENCES_ROW (child), title);
 
         conflict = conflict->next;
