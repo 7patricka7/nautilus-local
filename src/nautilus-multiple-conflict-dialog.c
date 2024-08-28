@@ -161,6 +161,41 @@ paste_button_clicked (GtkButton                      *button,
 }
 
 static void
+rename_entry_row_changed (GtkEditable                    *entry_row,
+                          NautilusMultipleConflictDialog *dialog)
+{
+    GList *conflict = dialog->conflicts;
+    GList *dest_name = dialog->dest_names;
+    GList *dest_no_ext = dialog->dest_no_extension;
+    GList *extension = dialog->extensions;
+    GtkWidget *child = gtk_widget_get_first_child (GTK_WIDGET (dialog->rename_list_box));
+
+    const char *text = gtk_editable_get_text (entry_row);
+    while (conflict != NULL &&
+           dest_name != NULL &&
+           dest_no_ext != NULL &&
+           extension != NULL &&
+           child != NULL)
+    {
+        gchar *new_dest = g_strdup_printf ("%s%s%s",
+                                           (char *) dest_no_ext->data,
+                                           text,
+                                           (char *) extension->data);
+        g_autofree gchar *title = g_strdup_printf ("%s 🡢 %s",
+                                                   (char *) dest_name->data,
+                                                   new_dest);
+
+        adw_preferences_row_set_title (ADW_PREFERENCES_ROW (child), title);
+
+        conflict = conflict->next;
+        dest_name = dest_name->next;
+        dest_no_ext = dest_no_ext->next;
+        extension = extension->next;
+        child = gtk_widget_get_next_sibling (child);
+    }
+}
+
+static void
 nautilus_multiple_conflict_dialog_class_init (NautilusMultipleConflictDialogClass *klass)
 {
     GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
@@ -177,6 +212,7 @@ nautilus_multiple_conflict_dialog_class_init (NautilusMultipleConflictDialogClas
     gtk_widget_class_bind_template_callback (widget_class, replace_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, cancel_button_clicked);
     gtk_widget_class_bind_template_callback (widget_class, paste_button_clicked);
+    gtk_widget_class_bind_template_callback (widget_class, rename_entry_row_changed);
 }
 
 static void

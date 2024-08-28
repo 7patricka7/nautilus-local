@@ -137,6 +137,7 @@
                         <child>
                           <object class="AdwEntryRow" id="rename_entry_row">
                             <property name="title" translatable="true">Add to File Name</property>
+                            <signal name="changed" handler="rename_entry_row_changed" object="NautilusMultipleConflictDialog" swapped="no"/>
                           </object>
                         </child>
                       </object>
