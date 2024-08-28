@@ -35,6 +35,11 @@ struct _NautilusMultipleConflictDialog
     GtkWidget *conflict_number_label;
     GtkWidget *cancel_button;
     GtkWidget *replace_button;
+
+    GList *dest_names;
+    GList *dest_no_extension;
+    GList *extensions;
+    GList *conflicts;
 };
 
 G_DEFINE_TYPE (NautilusMultipleConflictDialog, nautilus_multiple_conflict_dialog, ADW_TYPE_DIALOG);
@@ -98,6 +103,36 @@ nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConflictDia
         adw_action_row_add_prefix (ADW_ACTION_ROW (row), check_button);
 
         gtk_list_box_append (GTK_LIST_BOX (self->replacement_list_box), row);
+    }
+}
+
+void
+nautilus_multiple_conflict_dialog_set_rename_rows (NautilusMultipleConflictDialog *self,
+                                                   GList                          *conflicts,
+                                                   GList                          *dest_names,
+                                                   GList                          *dest_no_extension,
+                                                   GList                          *extensions)
+{
+    GtkWidget *row;
+    GList *conflict, *dest_name;
+
+    self->dest_names = dest_names;
+    self->dest_no_extension = dest_no_extension;
+    self->extensions = extensions;
+    self->conflicts = conflicts;
+
+    for (conflict = conflicts, dest_name = dest_names;
+         conflict != NULL && dest_name != NULL;
+         conflict = conflict->next, dest_name = dest_name->next)
+    {
+        row = adw_action_row_new ();
+
+        g_autofree gchar *title = g_strdup_printf ("%s 🡢 %s",
+                                                   (char *) dest_name->data,
+                                                   (char *) dest_name->data);
+        adw_preferences_row_set_title (ADW_PREFERENCES_ROW (row), title);
+
+        gtk_list_box_append (GTK_LIST_BOX (self->rename_list_box), row);
     }
 }
 

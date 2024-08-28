@@ -6,6 +6,7 @@
 #include "nautilus-file.h"
 #include "nautilus-file-operations.h"
 #include "nautilus-file-conflict-dialog.h"
+#include "nautilus-filename-utilities.h"
 #include "nautilus-mime-actions.h"
 #include "nautilus-multiple-conflict-dialog.h"
 #include "nautilus-program-choosing.h"
@@ -164,6 +165,32 @@ set_multiple_conflict_rows (MultipleFilesConflictData *data)
                                                          destination_names,
                                                          destination_dates,
                                                          source_dates);
+}
+
+static void
+set_multiple_rename_rows (MultipleFilesConflictData *data)
+{
+    GList *destination_names = NULL;
+    GList *dest_no_extension = NULL;
+    GList *extensions = NULL;
+
+    for (GList *l = data->conflicts; l != NULL; l = l->next)
+    {
+        FileData *conflict = (FileData *) l->data;
+        const char *fname = nautilus_file_get_display_name (conflict->nautilus_dest);
+        destination_names = g_list_append (destination_names,
+                                           (char *) fname);
+        dest_no_extension = g_list_append (dest_no_extension,
+                                           nautilus_filename_strip_extension (fname));
+        extensions = g_list_append (extensions,
+                                    (char *) nautilus_filename_get_extension (fname));
+    }
+
+    nautilus_multiple_conflict_dialog_set_rename_rows (data->dialog,
+                                                       data->conflicts,
+                                                       destination_names,
+                                                       dest_no_extension,
+                                                       extensions);
 }
 
 static void
@@ -557,6 +584,7 @@ run_multiple_file_conflict_dialog (gpointer user_data)
     }
 
     set_multiple_conflict_rows (data);
+    set_multiple_rename_rows (data);
 
     g_signal_connect (data->dialog, "close-attempt", G_CALLBACK (on_multiple_conflict_dialog_closing), data);
     adw_dialog_present (ADW_DIALOG (data->dialog), GTK_WIDGET (data->parent));

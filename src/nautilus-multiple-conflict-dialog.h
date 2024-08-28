@@ -44,4 +44,10 @@ void nautilus_multiple_conflict_dialog_delay_buttons_activation (NautilusMultipl
 
 ConflictResponse nautilus_multiple_conflict_dialog_get_response (NautilusMultipleConflictDialog *dialog);
 
+void nautilus_multiple_conflict_dialog_set_rename_rows (NautilusMultipleConflictDialog *self,
+                                                        GList                          *conflicts,
+                                                        GList                          *dest_names,
+                                                        GList                          *dest_no_extension,
+                                                        GList                          *extensions);
+
 G_END_DECLS
