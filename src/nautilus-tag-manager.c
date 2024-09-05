@@ -385,7 +385,10 @@ nautilus_tag_manager_star_files (NautilusTagManager  *self,
     GTask *task;
     UpdateData *update_data;
 
-    g_debug ("Starring %i files", g_list_length (selection));
+    if (g_getenv ("G_MESSAGES_DEBUG") != NULL)
+    {
+        g_debug ("Starring %i files", g_list_length (selection));
+    }
 
     task = g_task_new (object, cancellable, callback, NULL);
 
@@ -418,7 +421,10 @@ nautilus_tag_manager_unstar_files (NautilusTagManager  *self,
     GTask *task;
     UpdateData *update_data;
 
-    g_debug ("Unstarring %i files", g_list_length (selection));
+    if (g_getenv ("G_MESSAGES_DEBUG") != NULL)
+    {
+        g_debug ("Unstarring %i files", g_list_length (selection));
+    }
 
     task = g_task_new (object, cancellable, callback, NULL);
 
