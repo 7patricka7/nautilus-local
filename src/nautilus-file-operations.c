@@ -8200,7 +8200,7 @@ report_extract_final_progress (ExtractJob *extract_job)
      * extract_job->total_files variable to avoid printing wrong basename in
      * the case of skipped files.
      */
-    if (g_list_length (extract_job->source_files) == 1)
+    if (extract_job->total_files == 1)
     {
         GFile *source_file;
         g_autofree gchar *basename = NULL;
