@@ -957,6 +957,8 @@ add_extension_model_page (NautilusPropertiesModel  *model,
 
     g_object_set_data (G_OBJECT (row), "nautilus-extension-properties-model", list_model);
 
+    gtk_widget_set_visible (self->extension_models_list_box, TRUE);
+
     return row;
 }
 
