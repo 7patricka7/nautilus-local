@@ -7834,7 +7834,7 @@ nautilus_file_invalidate_attributes_internal (NautilusFile           *file,
         return;
     }
 
-    request = nautilus_directory_set_up_request (file_attributes);
+    request = nautilus_request_new (file_attributes, FALSE);
 
     if (REQUEST_WANTS_TYPE (request, REQUEST_DIRECTORY_COUNT))
     {
@@ -9114,4 +9114,63 @@ nautilus_file_info_iface_init (NautilusFileInfoInterface *iface)
     iface->get_parent_info = get_parent_info;
     iface->get_mount = get_mount;
     iface->can_write = can_write;
+}
+
+gboolean
+nautilus_file_needs_deep_count (NautilusFile *file)
+{
+    return file->details->deep_counts_status != NAUTILUS_REQUEST_DONE;
+}
+
+gboolean
+nautilus_file_needs_directory_count (NautilusFile *file)
+{
+    return !file->details->directory_count_is_up_to_date
+           && nautilus_file_should_show_directory_item_count (file);
+}
+
+gboolean
+nautilus_file_needs_extension_info (NautilusFile *file)
+{
+    return file->details->pending_info_providers != NULL;
+}
+
+gboolean
+nautilus_file_needs_file_info (NautilusFile *file)
+{
+    return !file->details->file_info_is_up_to_date &&
+           !file->details->is_gone;
+}
+
+gboolean
+nautilus_file_needs_filesystem_info (NautilusFile *file)
+{
+    return !file->details->filesystem_info_is_up_to_date;
+}
+
+gboolean
+nautilus_file_needs_mount (NautilusFile *file)
+{
+    if (file->details->mount_is_up_to_date)
+    {
+        return false;
+    }
+
+    return /* Unix mountpoint, could be a GMount */
+           file->details->is_mountpoint ||
+
+           /* The toplevel directory of something */
+           (file->details->type == G_FILE_TYPE_DIRECTORY &&
+            nautilus_file_is_self_owned (file)) ||
+
+           /* Mountable, could be a mountpoint */
+           (file->details->type == G_FILE_TYPE_MOUNTABLE);
+}
+
+gboolean
+nautilus_file_needs_thumbnailing (NautilusFile *file)
+{
+    return file->details->thumbnail_path != NULL &&
+           !file->details->thumbnail_is_up_to_date &&
+           nautilus_file_should_show_thumbnail (file);
 }

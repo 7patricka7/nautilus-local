@@ -31,6 +31,7 @@
 #include "nautilus-global-preferences.h"
 #include "nautilus-hash-queue.h"
 #include "nautilus-metadata.h"
+#include "nautilus-request.h"
 #include "nautilus-signaller.h"
 
 /* turn this on to check if async. job calls are balanced */
@@ -106,24 +107,34 @@ struct DeepCountState
     char *fs_id;
 };
 
-
+typedef union
+{
+    NautilusDirectoryCallback directory;
+    NautilusFileCallback file;
+} CallbackUnion;
 
 typedef struct
 {
+    NautilusDirectory *directory;
     NautilusFile *file;     /* Which file, NULL means all. */
-    union
-    {
-        NautilusDirectoryCallback directory;
-        NautilusFileCallback file;
-    } callback;
+    CallbackUnion callback;
     gpointer callback_data;
     Request request;
-    gboolean active;     /* Set to FALSE when the callback is triggered and
-                          * scheduled to be called at idle, its still kept
-                          * in the list so we can kill it when the file
-                          * goes away.
-                          */
 } ReadyCallback;
+
+/*
+ * Callbacks are initially added as unsatisfied. Once a callback's request becomes fulfilled, it is
+ * marked as ready and scheduled to be called at idle. If a file goes away, its callbacks are
+ * cancelled.
+ */
+struct NautilusDirectoryCallbacks
+{
+    GList *unsatisfied;
+    GList *ready;
+
+    RequestCounter call_when_ready_counters;
+    guint call_ready_idle_id;
+};
 
 typedef struct
 {
@@ -154,9 +165,6 @@ static GHashTable *async_jobs;
 /* Forward declarations for functions that need them. */
 static void     deep_count_load (DeepCountState *state,
                                  GFile          *location);
-static gboolean request_is_satisfied (NautilusDirectory *directory,
-                                      NautilusFile      *file,
-                                      Request            request);
 static void     cancel_loading_attributes (NautilusDirectory     *directory,
                                            NautilusFileAttributes file_attributes);
 static void     add_all_files_to_work_queue (NautilusDirectory *directory);
@@ -167,91 +175,70 @@ static void     move_file_to_extension_queue (NautilusDirectory *directory,
 static void     nautilus_directory_invalidate_file_attributes (NautilusDirectory     *directory,
                                                                NautilusFileAttributes file_attributes);
 
-static void
-request_counter_add_request (RequestCounter counter,
-                             Request        request)
+/** Debug method that checks if counters match */
+static gboolean
+nautilus_directory_callbacks_verify_request_counts (NautilusDirectoryCallbacks *self)
 {
-    guint i;
+    RequestCounter counters = {0};
+    gboolean ok = TRUE;
 
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
+    for (GList *l = self->unsatisfied; l != NULL; l = l->next)
     {
-        if (REQUEST_WANTS_TYPE (request, i))
+        ReadyCallback *callback = l->data;
+        nautilus_request_counter_add (counters, callback->request);
+    }
+    for (GList *l = self->ready; l != NULL; l = l->next)
+    {
+        ReadyCallback *callback = l->data;
+        nautilus_request_counter_add (counters, callback->request);
+    }
+    for (uint i = 0; i < REQUEST_TYPE_LAST; i++)
+    {
+        if (counters[i] != self->call_when_ready_counters[i])
         {
-            counter[i]++;
+            g_warning ("call when ready counter for %i is wrong, expecting %d but found %d",
+                       i, counters[i], self->call_when_ready_counters[i]);
+            ok = FALSE;
         }
     }
+
+    return ok;
 }
 
-static void
-request_counter_remove_request (RequestCounter counter,
-                                Request        request)
+gboolean
+nautilus_directory_verify_counters (NautilusDirectory *directory)
 {
-    guint i;
+    gboolean ok;
 
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        if (REQUEST_WANTS_TYPE (request, i))
-        {
-            counter[i]--;
-        }
-    }
-}
+    ok = nautilus_directory_callbacks_verify_request_counts (directory->details->callbacks);
 
 #if 0
-static void
-nautilus_directory_verify_request_counts (NautilusDirectory *directory)
-{
-    GList *l;
-    RequestCounter counters;
-    int i;
-    gboolean fail;
+    RequestCounter counters = {0};
     GHashTableIter monitor_iter;
     gpointer value;
 
-    fail = FALSE;
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        counters[i] = 0;
-    }
     g_hash_table_iter_init (&monitor_iter, directory->details->monitor_table);
     while (g_hash_table_iter_next (&monitor_iter, NULL, &value))
     {
-        for (l = value; l; l = l->next)
+        for (GList *l = value; l != NULL; l = l->next)
         {
             Monitor *monitor = l->data;
-            request_counter_add_request (counters, monitor->request);
+            nautilus_request_counter_add (counters, monitor->request);
         }
     }
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
+    for (uint i = 0; i < REQUEST_TYPE_LAST; i++)
     {
         if (counters[i] != directory->details->monitor_counters[i])
         {
             g_warning ("monitor counter for %i is wrong, expecting %d but found %d",
                        i, counters[i], directory->details->monitor_counters[i]);
-            fail = TRUE;
+            ok = FALSE;
         }
     }
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        counters[i] = 0;
-    }
-    for (l = directory->details->call_when_ready_list; l != NULL; l = l->next)
-    {
-        ReadyCallback *callback = l->data;
-        request_counter_add_request (counters, callback->request);
-    }
-    for (i = 0; i < REQUEST_TYPE_LAST; i++)
-    {
-        if (counters[i] != directory->details->call_when_ready_counters[i])
-        {
-            g_warning ("call when ready counter for %i is wrong, expecting %d but found %d",
-                       i, counters[i], directory->details->call_when_ready_counters[i]);
-            fail = TRUE;
-        }
-    }
-    g_assert (!fail);
-}
 #endif
+
+    return ok;
+}
 
 /* Start a job. This is really just a way of limiting the number of
  * async. requests that we issue at any given time. Without this, the
@@ -566,8 +553,8 @@ insert_new_monitor (NautilusDirectory *directory,
         list = g_list_append (list, monitor);
     }
 
-    request_counter_add_request (directory->details->monitor_counters,
-                                 monitor->request);
+    nautilus_request_counter_add (directory->details->monitor_counters,
+                                  monitor->request);
     return TRUE;
 }
 
@@ -617,57 +604,10 @@ remove_monitor (NautilusDirectory *directory,
 
     if (monitor != NULL)
     {
-        request_counter_remove_request (directory->details->monitor_counters,
-                                        monitor->request);
+        nautilus_request_counter_remove (directory->details->monitor_counters,
+                                         monitor->request);
         g_free (monitor);
     }
-}
-
-Request
-nautilus_directory_set_up_request (NautilusFileAttributes file_attributes)
-{
-    Request request;
-
-    request = 0;
-
-    if ((file_attributes & NAUTILUS_FILE_ATTRIBUTE_DIRECTORY_ITEM_COUNT) != 0)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_DIRECTORY_COUNT);
-    }
-
-    if ((file_attributes & NAUTILUS_FILE_ATTRIBUTE_DEEP_COUNTS) != 0)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_DEEP_COUNT);
-    }
-
-    if ((file_attributes & NAUTILUS_FILE_ATTRIBUTE_INFO) != 0)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_FILE_INFO);
-    }
-
-    if ((file_attributes & NAUTILUS_FILE_ATTRIBUTE_EXTENSION_INFO) != 0)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_EXTENSION_INFO);
-    }
-
-    if (file_attributes & NAUTILUS_FILE_ATTRIBUTE_THUMBNAIL)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_THUMBNAIL);
-        REQUEST_SET_TYPE (request, REQUEST_FILE_INFO);
-    }
-
-    if (file_attributes & NAUTILUS_FILE_ATTRIBUTE_MOUNT)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_MOUNT);
-        REQUEST_SET_TYPE (request, REQUEST_FILE_INFO);
-    }
-
-    if (file_attributes & NAUTILUS_FILE_ATTRIBUTE_FILESYSTEM_INFO)
-    {
-        REQUEST_SET_TYPE (request, REQUEST_FILESYSTEM_INFO);
-    }
-
-    return request;
 }
 
 static void
@@ -702,12 +642,7 @@ nautilus_directory_monitor_add_internal (NautilusDirectory         *directory,
     monitor->file = file;
     monitor->monitor_hidden_files = monitor_hidden_files;
     monitor->client = client;
-    monitor->request = nautilus_directory_set_up_request (file_attributes);
-
-    if (file == NULL)
-    {
-        REQUEST_SET_TYPE (monitor->request, REQUEST_FILE_LIST);
-    }
+    monitor->request = nautilus_request_new (file_attributes, file == NULL);
 
     insert_new_monitor (directory, monitor);
 
@@ -1145,8 +1080,8 @@ nautilus_directory_remove_file_monitors (NautilusDirectory *directory,
         for (node = result; node; node = node->next)
         {
             monitor = node->data;
-            request_counter_remove_request (directory->details->monitor_counters,
-                                            monitor->request);
+            nautilus_request_counter_remove (directory->details->monitor_counters,
+                                             monitor->request);
         }
         result = g_list_reverse (result);
     }
@@ -1218,26 +1153,8 @@ ready_callback_key_compare (gconstpointer a,
     return 0;
 }
 
-static int
-ready_callback_key_compare_only_active (gconstpointer a,
-                                        gconstpointer b)
-{
-    const ReadyCallback *callback_a;
-
-    callback_a = a;
-
-    /* Non active callbacks never match */
-    if (!callback_a->active)
-    {
-        return -1;
-    }
-
-    return ready_callback_key_compare (a, b);
-}
-
 static void
-ready_callback_call (NautilusDirectory   *directory,
-                     const ReadyCallback *callback)
+ready_callback_call (const ReadyCallback *callback)
 {
     GList *file_list;
 
@@ -1252,184 +1169,257 @@ ready_callback_call (NautilusDirectory   *directory,
     }
     else if (callback->callback.directory != NULL)
     {
-        if (directory == NULL ||
+        if (callback->directory == NULL ||
             !REQUEST_WANTS_TYPE (callback->request, REQUEST_FILE_LIST))
         {
             file_list = NULL;
         }
         else
         {
-            file_list = nautilus_directory_get_file_list (directory);
+            file_list = nautilus_directory_get_file_list (callback->directory);
         }
 
         /* Pass back the file list if the user was waiting for it. */
-        (*callback->callback.directory)(directory,
+        (*callback->callback.directory)(callback->directory,
                                         file_list,
                                         callback->callback_data);
 
         nautilus_file_list_free (file_list);
+
+        nautilus_directory_async_state_changed (callback->directory);
     }
 }
 
-void
-nautilus_directory_call_when_ready_internal (NautilusDirectory         *directory,
-                                             NautilusFile              *file,
-                                             NautilusFileAttributes     file_attributes,
-                                             gboolean                   wait_for_file_list,
-                                             NautilusDirectoryCallback  directory_callback,
-                                             NautilusFileCallback       file_callback,
-                                             gpointer                   callback_data)
+static void
+nautilus_directory_callbacks_add_internal (NautilusDirectoryCallbacks *self,
+                                           ReadyCallback               callback,
+                                           gpointer                    callback_data)
 {
-    ReadyCallback callback;
-
-    g_assert (directory == NULL || NAUTILUS_IS_DIRECTORY (directory));
-    g_assert (file == NULL || NAUTILUS_IS_FILE (file));
-    g_assert (file != NULL || directory_callback != NULL);
-
-    /* Construct a callback object. */
-    callback.active = TRUE;
-    callback.file = file;
-    if (file == NULL)
-    {
-        callback.callback.directory = directory_callback;
-    }
-    else
-    {
-        callback.callback.file = file_callback;
-    }
-    callback.callback_data = callback_data;
-    callback.request = nautilus_directory_set_up_request (file_attributes);
-    if (wait_for_file_list)
-    {
-        REQUEST_SET_TYPE (callback.request, REQUEST_FILE_LIST);
-    }
-
-    /* Handle the NULL case. */
-    if (directory == NULL)
-    {
-        ready_callback_call (NULL, &callback);
-        return;
-    }
-
     /* Check if the callback is already there. */
-    if (g_list_find_custom (directory->details->call_when_ready_list,
-                            &callback,
-                            ready_callback_key_compare_only_active) != NULL)
+    if (g_list_find_custom (self->unsatisfied, &callback, ready_callback_key_compare) != NULL)
     {
-        if (file_callback != NULL && directory_callback != NULL)
+        if (callback.callback.file != NULL || callback.callback.directory != NULL)
         {
-            g_warning ("tried to add a new callback while an old one was pending");
+            g_autofree char *uri = (callback.file != NULL) ? nautilus_file_get_uri (callback.file) :
+                                                             nautilus_directory_get_uri (callback.directory);
+            g_warning ("tried to add a new callback for %s while an old one was pending", uri);
         }
         /* NULL callback means, just read it. Conflicts are ok. */
         return;
     }
 
     /* Add the new callback to the list. */
-    directory->details->call_when_ready_list = g_list_prepend
-                                                   (directory->details->call_when_ready_list,
-                                                   g_memdup2 (&callback, sizeof (callback)));
-    request_counter_add_request (directory->details->call_when_ready_counters,
-                                 callback.request);
+    self->unsatisfied = g_list_prepend (self->unsatisfied, g_memdup2 (&callback, sizeof (callback)));
+
+    nautilus_request_counter_add (self->call_when_ready_counters,
+                                  callback.request);
+}
+
+static void
+nautilus_directory_callbacks_add_directory (NautilusDirectoryCallbacks *self,
+                                            NautilusDirectory          *directory,
+                                            Request                     request,
+                                            NautilusDirectoryCallback   directory_callback,
+                                            gpointer                    callback_data)
+{
+    /* Construct a callback object. */
+    ReadyCallback callback =
+    {
+        .directory = directory,
+        .callback = (CallbackUnion){.directory = directory_callback},
+        .callback_data = callback_data,
+        .request = request
+    };
+
+    nautilus_directory_callbacks_add_internal (self, callback, callback_data);
+}
+
+static void
+nautilus_directory_callbacks_add_file (NautilusDirectoryCallbacks *self,
+                                       NautilusFile               *file,
+                                       Request                     request,
+                                       NautilusFileCallback        file_callback,
+                                       gpointer                    callback_data)
+{
+    /* Construct a callback object. */
+    ReadyCallback callback =
+    {
+        .file = file,
+        .callback = (CallbackUnion){.file = file_callback},
+        .callback_data = callback_data,
+        .request = request
+    };
+
+    nautilus_directory_callbacks_add_internal (self, callback, callback_data);
+}
+
+void
+nautilus_directory_call_when_directory_ready (NautilusDirectory         *directory,
+                                              NautilusFileAttributes     file_attributes,
+                                              gboolean                   wait_for_file_list,
+                                              NautilusDirectoryCallback  directory_callback,
+                                              gpointer                   callback_data)
+{
+    g_assert (NAUTILUS_IS_DIRECTORY (directory));
+
+    Request request = nautilus_request_new (file_attributes, wait_for_file_list);
+
+    nautilus_directory_callbacks_add_directory (directory->details->callbacks, directory, request, directory_callback, callback_data);
 
     /* Put the callback file or all the files on the work queue. */
-    if (file != NULL)
-    {
-        nautilus_directory_add_file_to_work_queue (directory, file);
-    }
-    else
-    {
-        add_all_files_to_work_queue (directory);
-    }
+    add_all_files_to_work_queue (directory);
 
     nautilus_directory_async_state_changed (directory);
 }
 
-gboolean
-nautilus_directory_check_if_ready_internal (NautilusDirectory      *directory,
-                                            NautilusFile           *file,
-                                            NautilusFileAttributes  file_attributes)
+void
+nautilus_directory_call_when_file_ready (NautilusDirectory      *directory,
+                                         NautilusFile           *file,
+                                         NautilusFileAttributes  file_attributes,
+                                         NautilusFileCallback    file_callback,
+                                         gpointer                callback_data)
 {
-    Request request;
-
     g_assert (NAUTILUS_IS_DIRECTORY (directory));
+    g_assert (NAUTILUS_IS_FILE (file));
 
-    request = nautilus_directory_set_up_request (file_attributes);
-    return request_is_satisfied (directory, file, request);
+    Request request = nautilus_request_new (file_attributes, FALSE);
+
+    nautilus_directory_callbacks_add_file (directory->details->callbacks, file, request, file_callback, callback_data);
+    nautilus_directory_add_file_to_work_queue (directory, file);
+
+    nautilus_directory_async_state_changed (directory);
 }
 
 static void
-remove_callback_link_keep_data (NautilusDirectory *directory,
-                                GList             *link)
+remove_callback_link_keep_data (NautilusDirectoryCallbacks *self,
+                                GList                      *link,
+                                gboolean                    ready)
 {
-    ReadyCallback *callback;
+    ReadyCallback *callback = link->data;
+    GList **list = ready ? &self->ready : &self->unsatisfied;
 
-    callback = link->data;
+    *list = g_list_remove_link (*list, link);
 
-    directory->details->call_when_ready_list = g_list_remove_link
-                                                   (directory->details->call_when_ready_list, link);
-
-    request_counter_remove_request (directory->details->call_when_ready_counters,
-                                    callback->request);
+    nautilus_request_counter_remove (self->call_when_ready_counters,
+                                     callback->request);
     g_list_free_1 (link);
 }
 
 static void
-remove_callback_link (NautilusDirectory *directory,
-                      GList             *link)
+remove_callback_link (NautilusDirectoryCallbacks *self,
+                      GList                      *link,
+                      gboolean                    ready)
 {
     ReadyCallback *callback;
 
     callback = link->data;
-    remove_callback_link_keep_data (directory, link);
+    remove_callback_link_keep_data (self, link, ready);
     g_free (callback);
 }
 
-void
-nautilus_directory_cancel_callback_internal (NautilusDirectory         *directory,
-                                             NautilusFile              *file,
-                                             NautilusDirectoryCallback  directory_callback,
-                                             NautilusFileCallback       file_callback,
-                                             gpointer                   callback_data)
+static gboolean
+nautilus_directory_callbacks_remove_internal (NautilusDirectoryCallbacks *self,
+                                              ReadyCallback               callback)
 {
-    ReadyCallback callback;
+    gboolean changed = FALSE;
     GList *node;
 
-    if (directory == NULL)
-    {
-        return;
-    }
-
-    g_assert (NAUTILUS_IS_DIRECTORY (directory));
-    g_assert (file == NULL || NAUTILUS_IS_FILE (file));
-    g_assert (file != NULL || directory_callback != NULL);
-    g_assert (file == NULL || file_callback != NULL);
-
-    /* Construct a callback object. */
-    callback.file = file;
-    if (file == NULL)
-    {
-        callback.callback.directory = directory_callback;
-    }
-    else
-    {
-        callback.callback.file = file_callback;
-    }
-    callback.callback_data = callback_data;
-
-    /* Remove all queued callback from the list (including non-active). */
+    /* Remove all queued callback from the list (including ready). */
     do
     {
-        node = g_list_find_custom (directory->details->call_when_ready_list,
+        node = g_list_find_custom (self->ready,
                                    &callback,
                                    ready_callback_key_compare);
         if (node != NULL)
         {
-            remove_callback_link (directory, node);
-
-            nautilus_directory_async_state_changed (directory);
+            remove_callback_link (self, node, TRUE);
+            changed = TRUE;
         }
     }
     while (node != NULL);
+
+    do
+    {
+        node = g_list_find_custom (self->unsatisfied,
+                                   &callback,
+                                   ready_callback_key_compare);
+        if (node != NULL)
+        {
+            remove_callback_link (self, node, FALSE);
+            changed = TRUE;
+        }
+    }
+    while (node != NULL);
+
+    return changed;
+}
+
+/** @return: whether at least one callback was removed. */
+static gboolean
+nautilus_directory_callbacks_remove_directory (NautilusDirectoryCallbacks *self,
+                                               NautilusDirectory          *directory,
+                                               NautilusDirectoryCallback   directory_callback,
+                                               gpointer                    callback_data)
+{
+    ReadyCallback callback =
+    {
+        .directory = directory,
+        .callback = (CallbackUnion){.directory = directory_callback},
+        .callback_data = callback_data,
+    };
+
+    return nautilus_directory_callbacks_remove_internal (self, callback);
+}
+
+/** @return: whether at least one callback was removed. */
+static gboolean
+nautilus_directory_callbacks_remove_file (NautilusDirectoryCallbacks *self,
+                                          NautilusFile               *file,
+                                          NautilusFileCallback        file_callback,
+                                          gpointer                    callback_data)
+{
+    ReadyCallback callback =
+    {
+        .file = file,
+        .callback = (CallbackUnion){.file = file_callback},
+        .callback_data = callback_data,
+    };
+
+    return nautilus_directory_callbacks_remove_internal (self, callback);
+}
+
+void
+nautilus_directory_cancel_directory_callback (NautilusDirectory         *directory,
+                                              NautilusDirectoryCallback  directory_callback,
+                                              gpointer                   callback_data)
+{
+    g_assert (NAUTILUS_IS_DIRECTORY (directory));
+
+    if (nautilus_directory_callbacks_remove_directory (directory->details->callbacks,
+                                                       directory,
+                                                       directory_callback,
+                                                       callback_data))
+    {
+        nautilus_directory_async_state_changed (directory);
+    }
+}
+
+void
+nautilus_directory_cancel_file_callback (NautilusDirectory    *directory,
+                                         NautilusFile         *file,
+                                         NautilusFileCallback  file_callback,
+                                         gpointer              callback_data)
+{
+    g_assert (NAUTILUS_IS_DIRECTORY (directory));
+    g_assert (NAUTILUS_IS_FILE (file));
+
+    if (nautilus_directory_callbacks_remove_file (directory->details->callbacks,
+                                                  file,
+                                                  file_callback,
+                                                  callback_data))
+    {
+        nautilus_directory_async_state_changed (directory);
+    }
 }
 
 static void
@@ -1521,46 +1511,101 @@ nautilus_directory_get_info_for_new_files (NautilusDirectory *directory,
                           state);
 }
 
+NautilusDirectoryCallbacks *
+nautilus_directory_callbacks_new (void)
+{
+    return g_new0 (NautilusDirectoryCallbacks, 1);
+}
+
+void
+nautilus_directory_callbacks_free (NautilusDirectoryCallbacks *self)
+{
+    if (self->call_ready_idle_id != 0)
+    {
+        g_source_remove (self->call_ready_idle_id);
+    }
+
+    while (self->unsatisfied != NULL)
+    {
+        ReadyCallback *callback = self->unsatisfied->data;
+        g_autofree char *uri = (callback->file != NULL) ? nautilus_file_get_uri (callback->file) :
+                                                          nautilus_directory_get_uri (callback->directory);
+        g_warning ("destroyed directory has unsatisfied pending callbacks for %s", uri);
+
+        remove_callback_link (self, self->unsatisfied, FALSE);
+    }
+
+    while (self->ready != NULL)
+    {
+        ReadyCallback *callback = self->ready->data;
+        g_autofree char *uri = (callback->file != NULL) ? nautilus_file_get_uri (callback->file) :
+                                                          nautilus_directory_get_uri (callback->directory);
+        g_warning ("destroyed directory has ready pending callbacks for %s", uri);
+
+        remove_callback_link (self, self->ready, TRUE);
+    }
+}
+
+static gboolean
+nautilus_directory_callbacks_clear (NautilusDirectoryCallbacks *self,
+                                    NautilusFile               *file)
+{
+    gboolean removed = FALSE;
+    GList *node, *next;
+
+    for (node = self->unsatisfied; node != NULL; node = next)
+    {
+        ReadyCallback *callback = node->data;
+        next = node->next;
+
+        if (callback->file != file)
+        {
+            continue;
+        }
+
+        /* Client should have cancelled callback. */
+        g_warning ("destroyed file has call_when_ready pending");
+
+        remove_callback_link (self, node, FALSE);
+        removed = TRUE;
+    }
+
+    for (node = self->unsatisfied; node != NULL; node = next)
+    {
+        ReadyCallback *callback = node->data;
+        next = node->next;
+
+        if (callback->file != file)
+        {
+            continue;
+        }
+
+        remove_callback_link (self, node, TRUE);
+        removed = TRUE;
+    }
+
+    return removed;
+}
+
 void
 nautilus_async_destroying_file (NautilusFile *file)
 {
-    NautilusDirectory *directory;
+    NautilusDirectory *directory = file->details->directory;
     gboolean changed;
-    GList *node, *next;
-    ReadyCallback *callback;
-    Monitor *monitor;
-
-    directory = file->details->directory;
-    changed = FALSE;
 
     /* Check for callbacks. */
-    for (node = directory->details->call_when_ready_list; node != NULL; node = next)
-    {
-        next = node->next;
-        callback = node->data;
-
-        if (callback->file == file)
-        {
-            /* Client should have cancelled callback. */
-            if (callback->active)
-            {
-                g_warning ("destroyed file has call_when_ready pending");
-            }
-            remove_callback_link (directory, node);
-            changed = TRUE;
-        }
-    }
+    changed = nautilus_directory_callbacks_clear (directory->details->callbacks, file);
 
     /* Check for monitors. */
-    node = g_hash_table_lookup (directory->details->monitor_table, file);
+    GList *node = g_hash_table_lookup (directory->details->monitor_table, file);
     if (node != NULL)
     {
         /* Client should have removed monitor earlier. */
         g_warning ("destroyed file still being monitored");
-        for (; node; node = next)
+        while (node != NULL)
         {
-            next = node->next;
-            monitor = node->data;
+            Monitor *monitor = node->data;
+            node = node->next;
 
             remove_monitor (directory, monitor->file, monitor->client);
         }
@@ -1621,243 +1666,83 @@ nautilus_async_destroying_file (NautilusFile *file)
 }
 
 static gboolean
-lacks_directory_count (NautilusFile *file)
-{
-    return !file->details->directory_count_is_up_to_date
-           && nautilus_file_should_show_directory_item_count (file);
-}
-
-static gboolean
 should_get_directory_count_now (NautilusFile *file)
 {
-    return lacks_directory_count (file)
+    return nautilus_file_needs_directory_count (file)
            && !file->details->loading_directory;
-}
-
-static gboolean
-lacks_info (NautilusFile *file)
-{
-    return !file->details->file_info_is_up_to_date
-           && !file->details->is_gone;
-}
-
-static gboolean
-lacks_filesystem_info (NautilusFile *file)
-{
-    return !file->details->filesystem_info_is_up_to_date;
-}
-
-static gboolean
-lacks_deep_count (NautilusFile *file)
-{
-    return file->details->deep_counts_status != NAUTILUS_REQUEST_DONE;
-}
-
-static gboolean
-lacks_extension_info (NautilusFile *file)
-{
-    return file->details->pending_info_providers != NULL;
-}
-
-static gboolean
-lacks_thumbnail (NautilusFile *file)
-{
-    return nautilus_file_should_show_thumbnail (file) &&
-           file->details->thumbnail_path != NULL &&
-           !file->details->thumbnail_is_up_to_date;
-}
-
-static gboolean
-lacks_mount (NautilusFile *file)
-{
-    return (!file->details->mount_is_up_to_date &&
-            (
-                /* Unix mountpoint, could be a GMount */
-                file->details->is_mountpoint ||
-
-                /* The toplevel directory of something */
-                (file->details->type == G_FILE_TYPE_DIRECTORY &&
-                 nautilus_file_is_self_owned (file)) ||
-
-                /* Mountable, could be a mountpoint */
-                (file->details->type == G_FILE_TYPE_MOUNTABLE)
-
-            )
-            );
-}
-
-static gboolean
-has_problem (NautilusDirectory *directory,
-             NautilusFile      *file,
-             FileCheck          problem)
-{
-    GList *node;
-
-    if (file != NULL)
-    {
-        return (*problem)(file);
-    }
-
-    for (node = directory->details->file_list; node != NULL; node = node->next)
-    {
-        if ((*problem)(node->data))
-        {
-            return TRUE;
-        }
-    }
-
-    return FALSE;
-}
-
-static gboolean
-request_is_satisfied (NautilusDirectory *directory,
-                      NautilusFile      *file,
-                      Request            request)
-{
-    if (REQUEST_WANTS_TYPE (request, REQUEST_FILE_LIST) &&
-        !(directory->details->directory_loaded &&
-          directory->details->directory_loaded_sent_notification))
-    {
-        return FALSE;
-    }
-
-    if (REQUEST_WANTS_TYPE (request, REQUEST_DIRECTORY_COUNT))
-    {
-        if (has_problem (directory, file, lacks_directory_count))
-        {
-            return FALSE;
-        }
-    }
-
-    if (REQUEST_WANTS_TYPE (request, REQUEST_FILE_INFO))
-    {
-        if (has_problem (directory, file, lacks_info))
-        {
-            return FALSE;
-        }
-    }
-
-    if (REQUEST_WANTS_TYPE (request, REQUEST_FILESYSTEM_INFO))
-    {
-        if (has_problem (directory, file, lacks_filesystem_info))
-        {
-            return FALSE;
-        }
-    }
-
-    if (REQUEST_WANTS_TYPE (request, REQUEST_DEEP_COUNT))
-    {
-        if (has_problem (directory, file, lacks_deep_count))
-        {
-            return FALSE;
-        }
-    }
-
-    if (REQUEST_WANTS_TYPE (request, REQUEST_THUMBNAIL))
-    {
-        if (has_problem (directory, file, lacks_thumbnail))
-        {
-            return FALSE;
-        }
-    }
-
-    if (REQUEST_WANTS_TYPE (request, REQUEST_MOUNT))
-    {
-        if (has_problem (directory, file, lacks_mount))
-        {
-            return FALSE;
-        }
-    }
-
-    return TRUE;
 }
 
 static gboolean
 call_ready_callbacks_at_idle (gpointer callback_data)
 {
-    NautilusDirectory *directory;
-    GList *node, *next;
+    NautilusDirectoryCallbacks *self = callback_data;
+    GList *node;
     ReadyCallback *callback;
 
-    directory = NAUTILUS_DIRECTORY (callback_data);
-    directory->details->call_ready_idle_id = 0;
-
-    nautilus_directory_ref (directory);
+    self->call_ready_idle_id = 0;
 
     callback = NULL;
-    while (1)
+    /* Check if any callbacks are ready and call them if they are. */
+    while ((node = self->ready) != NULL)
     {
-        /* Check if any callbacks are non-active and call them if they are. */
-        for (node = directory->details->call_when_ready_list;
-             node != NULL; node = next)
-        {
-            next = node->next;
-            callback = node->data;
-            if (!callback->active)
-            {
-                /* Non-active, remove and call */
-                break;
-            }
-        }
-        if (node == NULL)
-        {
-            break;
-        }
+        callback = node->data;
 
         /* Callbacks are one-shots, so remove it now. */
-        remove_callback_link_keep_data (directory, node);
+        remove_callback_link_keep_data (self, node, TRUE);
 
         /* Call the callback. */
-        ready_callback_call (directory, callback);
+        ready_callback_call (callback);
         g_free (callback);
     }
-
-    nautilus_directory_async_state_changed (directory);
-
-    nautilus_directory_unref (directory);
 
     return FALSE;
 }
 
 static void
-schedule_call_ready_callbacks (NautilusDirectory *directory)
+schedule_call_ready_callbacks (NautilusDirectoryCallbacks *self)
 {
-    if (directory->details->call_ready_idle_id == 0)
+    if (self->call_ready_idle_id == 0)
     {
-        directory->details->call_ready_idle_id
-            = g_idle_add (call_ready_callbacks_at_idle, directory);
+        self->call_ready_idle_id = g_idle_add (call_ready_callbacks_at_idle, self);
     }
 }
 
-/* Marks all callbacks that are ready as non-active and
+/* Moves all the callbacks that are ready and
  * calls them at idle time, unless they are removed
  * before then */
 static gboolean
-call_ready_callbacks (NautilusDirectory *directory)
+call_ready_callbacks (NautilusDirectoryCallbacks *self)
 {
     gboolean found_any;
     GList *node, *next;
-    ReadyCallback *callback;
+    GList **unsatisfied_list, **ready_list;
+
+    unsatisfied_list = &self->unsatisfied;
+    ready_list = &self->ready;
 
     found_any = FALSE;
 
     /* Check if any callbacks are satisifed and mark them for call them if they are. */
-    for (node = directory->details->call_when_ready_list;
-         node != NULL; node = next)
+    for (node = *unsatisfied_list; node != NULL; node = next)
     {
         next = node->next;
-        callback = node->data;
-        if (callback->active &&
-            request_is_satisfied (directory, callback->file, callback->request))
+        ReadyCallback *callback = node->data;
+
+        gboolean satisfied = (callback->file != NULL) ?
+                             nautilus_request_file_is_satisfied (callback->request, callback->file) :
+                             nautilus_request_directory_is_satisfied (callback->request, callback->directory);
+
+        if (satisfied)
         {
-            callback->active = FALSE;
+            *unsatisfied_list = g_list_delete_link (*unsatisfied_list, node);
+            *ready_list = g_list_prepend (*ready_list, callback);
             found_any = TRUE;
         }
     }
 
     if (found_any)
     {
-        schedule_call_ready_callbacks (directory);
+        schedule_call_ready_callbacks (self);
     }
 
     return found_any;
@@ -1880,17 +1765,14 @@ lookup_all_files_monitors (GHashTable *monitor_table)
     return g_hash_table_lookup (monitor_table, NULL);
 }
 
-gboolean
-nautilus_directory_has_request_for_file (NautilusDirectory *directory,
-                                         NautilusFile      *file)
+static gboolean
+nautilus_directory_callbacks_exists (NautilusDirectoryCallbacks *self,
+                                     NautilusFile               *file)
 {
-    GList *node;
-    ReadyCallback *callback;
-
-    for (node = directory->details->call_when_ready_list;
+    for (GList *node = self->unsatisfied;
          node != NULL; node = node->next)
     {
-        callback = node->data;
+        ReadyCallback *callback = node->data;
         if (callback->file == file ||
             callback->file == NULL)
         {
@@ -1898,6 +1780,28 @@ nautilus_directory_has_request_for_file (NautilusDirectory *directory,
         }
     }
 
+    for (GList *node = self->ready;
+         node != NULL; node = node->next)
+    {
+        ReadyCallback *callback = node->data;
+        if (callback->file == file ||
+            callback->file == NULL)
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+gboolean
+nautilus_directory_has_request_for_file (NautilusDirectory *directory,
+                                         NautilusFile      *file)
+{
+    if (nautilus_directory_callbacks_exists (directory->details->callbacks, file))
+    {
+        return TRUE;
+    }
     if (lookup_monitors (directory->details->monitor_table, file) != NULL)
     {
         return TRUE;
@@ -1915,7 +1819,7 @@ nautilus_directory_has_request_for_file (NautilusDirectory *directory,
 gboolean
 nautilus_directory_is_anyone_monitoring_file_list (NautilusDirectory *directory)
 {
-    if (directory->details->call_when_ready_counters[REQUEST_FILE_LIST] > 0)
+    if (directory->details->callbacks->call_when_ready_counters[REQUEST_FILE_LIST] > 0)
     {
         return TRUE;
     }
@@ -2258,40 +2162,51 @@ is_wanted_by_monitor (NautilusFile *file,
 }
 
 static gboolean
+nautilus_directory_callbacks_unsatisfied_request_exists (NautilusDirectoryCallbacks *self,
+                                                         NautilusFile               *file,
+                                                         RequestType                 request_type)
+{
+    if (self->call_when_ready_counters[request_type] <= 0)
+    {
+        return FALSE;
+    }
+
+    for (GList *node = self->unsatisfied;
+         node != NULL; node = node->next)
+    {
+        ReadyCallback *callback = node->data;
+
+        if (!REQUEST_WANTS_TYPE (callback->request, request_type))
+        {
+            continue;
+        }
+
+        if (callback->file == file ||
+            (callback->file == NULL && !nautilus_file_is_self_owned (file)))
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+static gboolean
 is_needy (NautilusFile *file,
           FileCheck     check_missing,
           RequestType   request_type_wanted)
 {
-    NautilusDirectory *directory;
-    GList *node;
-    ReadyCallback *callback;
-
     if (!(*check_missing)(file))
     {
         return FALSE;
     }
 
-    directory = file->details->directory;
-    if (directory->details->call_when_ready_counters[request_type_wanted] > 0)
+    NautilusDirectory *directory = file->details->directory;
+
+    if (nautilus_directory_callbacks_unsatisfied_request_exists (directory->details->callbacks,
+                                                                 file, request_type_wanted))
     {
-        for (node = directory->details->call_when_ready_list;
-             node != NULL; node = node->next)
-        {
-            callback = node->data;
-            if (callback->active &&
-                REQUEST_WANTS_TYPE (callback->request, request_type_wanted))
-            {
-                if (callback->file == file)
-                {
-                    return TRUE;
-                }
-                if (callback->file == NULL &&
-                    !nautilus_file_is_self_owned (file))
-                {
-                    return TRUE;
-                }
-            }
-        }
+        return TRUE;
     }
 
     if (directory->details->monitor_counters[request_type_wanted] > 0)
@@ -2865,7 +2780,7 @@ deep_count_stop (NautilusDirectory *directory)
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
             if (is_needy (file,
-                          lacks_deep_count,
+                          nautilus_file_needs_deep_count,
                           REQUEST_DEEP_COUNT))
             {
                 return;
@@ -2912,7 +2827,7 @@ deep_count_start (NautilusDirectory *directory,
     }
 
     if (!is_needy (file,
-                   lacks_deep_count,
+                   nautilus_file_needs_deep_count,
                    REQUEST_DEEP_COUNT))
     {
         return;
@@ -3044,7 +2959,7 @@ file_info_stop (NautilusDirectory *directory)
         {
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
-            if (is_needy (file, lacks_info, REQUEST_FILE_INFO))
+            if (is_needy (file, nautilus_file_needs_file_info, REQUEST_FILE_INFO))
             {
                 return;
             }
@@ -3071,7 +2986,7 @@ file_info_start (NautilusDirectory *directory,
         return;
     }
 
-    if (!is_needy (file, lacks_info, REQUEST_FILE_INFO))
+    if (!is_needy (file, nautilus_file_needs_file_info, REQUEST_FILE_INFO))
     {
         return;
     }
@@ -3132,7 +3047,7 @@ thumbnail_stop (NautilusDirectory *directory)
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
             if (is_needy (file,
-                          lacks_thumbnail,
+                          nautilus_file_needs_thumbnailing,
                           REQUEST_THUMBNAIL))
             {
                 return;
@@ -3301,7 +3216,7 @@ thumbnail_start (NautilusDirectory *directory,
     }
 
     if (!is_needy (file,
-                   lacks_thumbnail,
+                   nautilus_file_needs_thumbnailing,
                    REQUEST_THUMBNAIL))
     {
         return;
@@ -3343,7 +3258,7 @@ mount_stop (NautilusDirectory *directory)
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
             if (is_needy (file,
-                          lacks_mount,
+                          nautilus_file_needs_mount,
                           REQUEST_MOUNT))
             {
                 return;
@@ -3445,7 +3360,7 @@ mount_start (NautilusDirectory *directory,
     }
 
     if (!is_needy (file,
-                   lacks_mount,
+                   nautilus_file_needs_mount,
                    REQUEST_MOUNT))
     {
         return;
@@ -3523,7 +3438,7 @@ filesystem_info_stop (NautilusDirectory *directory)
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
             if (is_needy (file,
-                          lacks_filesystem_info,
+                          nautilus_file_needs_filesystem_info,
                           REQUEST_FILESYSTEM_INFO))
             {
                 return;
@@ -3619,7 +3534,7 @@ filesystem_info_start (NautilusDirectory *directory,
     }
 
     if (!is_needy (file,
-                   lacks_filesystem_info,
+                   nautilus_file_needs_filesystem_info,
                    REQUEST_FILESYSTEM_INFO))
     {
         return;
@@ -3688,7 +3603,7 @@ extension_info_stop (NautilusDirectory *directory)
         {
             g_assert (NAUTILUS_IS_FILE (file));
             g_assert (file->details->directory == directory);
-            if (is_needy (file, lacks_extension_info, REQUEST_EXTENSION_INFO))
+            if (is_needy (file, nautilus_file_needs_extension_info, REQUEST_EXTENSION_INFO))
             {
                 return;
             }
@@ -3786,7 +3701,7 @@ extension_info_start (NautilusDirectory *directory,
         return;
     }
 
-    if (!is_needy (file, lacks_extension_info, REQUEST_EXTENSION_INFO))
+    if (!is_needy (file, nautilus_file_needs_extension_info, REQUEST_EXTENSION_INFO))
     {
         return;
     }
@@ -3923,7 +3838,7 @@ nautilus_directory_async_state_changed (NautilusDirectory *directory)
     {
         directory->details->state_changed = FALSE;
         start_or_stop_io (directory);
-        if (call_ready_callbacks (directory))
+        if (call_ready_callbacks (directory->details->callbacks))
         {
             directory->details->state_changed = TRUE;
         }
@@ -4028,9 +3943,7 @@ static void
 cancel_loading_attributes (NautilusDirectory      *directory,
                            NautilusFileAttributes  file_attributes)
 {
-    Request request;
-
-    request = nautilus_directory_set_up_request (file_attributes);
+    Request request = nautilus_request_new (file_attributes, FALSE);
 
     if (REQUEST_WANTS_TYPE (request, REQUEST_DIRECTORY_COUNT))
     {
@@ -4071,11 +3984,9 @@ nautilus_directory_cancel_loading_file_attributes (NautilusDirectory      *direc
                                                    NautilusFile           *file,
                                                    NautilusFileAttributes  file_attributes)
 {
-    Request request;
-
     nautilus_directory_remove_file_from_work_queue (directory, file);
 
-    request = nautilus_directory_set_up_request (file_attributes);
+    Request request = nautilus_request_new (file_attributes, FALSE);
 
     if (REQUEST_WANTS_TYPE (request, REQUEST_DIRECTORY_COUNT))
     {

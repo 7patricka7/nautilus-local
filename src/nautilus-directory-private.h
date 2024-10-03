@@ -26,6 +26,7 @@
 
 #include "nautilus-directory.h"
 #include "nautilus-file.h"
+#include "nautilus-request.h"
 
 typedef struct FileMonitors FileMonitors;
 typedef struct DirectoryLoadState DirectoryLoadState;
@@ -36,25 +37,7 @@ typedef struct NewFilesState NewFilesState;
 typedef struct ThumbnailState ThumbnailState;
 typedef struct MountState MountState;
 typedef struct FilesystemInfoState FilesystemInfoState;
-
-typedef enum {
-	REQUEST_DEEP_COUNT,
-	REQUEST_DIRECTORY_COUNT,
-	REQUEST_FILE_INFO,
-	REQUEST_FILE_LIST, /* always FALSE if file != NULL */
-	REQUEST_EXTENSION_INFO,
-	REQUEST_THUMBNAIL,
-	REQUEST_MOUNT,
-	REQUEST_FILESYSTEM_INFO,
-	REQUEST_TYPE_LAST
-} RequestType;
-
-/* A request for information about one or more files. */
-typedef guint32 Request;
-typedef gint32 RequestCounter[REQUEST_TYPE_LAST];
-
-#define REQUEST_WANTS_TYPE(request, type) ((request) & (1<<(type)))
-#define REQUEST_SET_TYPE(request, type) (request) |= (1<<(type))
+typedef struct NautilusDirectoryCallbacks NautilusDirectoryCallbacks;
 
 struct NautilusDirectoryPrivate
 {
@@ -71,14 +54,10 @@ struct NautilusDirectoryPrivate
 	NautilusHashQueue *low_priority_queue;
 	NautilusHashQueue *extension_queue;
 
-	/* These lists are going to be pretty short.  If we think they
-	 * are going to get big, we can use hash tables instead.
-	 */
-	GList *call_when_ready_list;
-	RequestCounter call_when_ready_counters;
+	NautilusDirectoryCallbacks *callbacks;
+
 	GHashTable *monitor_table;
 	RequestCounter monitor_counters;
-	guint call_ready_idle_id;
 
 	NautilusMonitor *monitor;
 	gulong 		 mime_db_monitor;
@@ -129,16 +108,26 @@ NautilusDirectory *nautilus_directory_get_existing                    (GFile    
 
 /* async. interface */
 void               nautilus_directory_async_state_changed             (NautilusDirectory         *directory);
-void               nautilus_directory_call_when_ready_internal        (NautilusDirectory         *directory,
-								       NautilusFile              *file,
-								       NautilusFileAttributes     file_attributes,
-								       gboolean                   wait_for_file_list,
-								       NautilusDirectoryCallback  directory_callback,
-								       NautilusFileCallback       file_callback,
-								       gpointer                   callback_data);
-gboolean           nautilus_directory_check_if_ready_internal         (NautilusDirectory         *directory,
-								       NautilusFile              *file,
-								       NautilusFileAttributes     file_attributes);
+
+void               nautilus_directory_call_when_directory_ready       (NautilusDirectory         *directory,
+                                                                       NautilusFileAttributes     file_attributes,
+                                                                       gboolean                   wait_for_file_list,
+                                                                       NautilusDirectoryCallback  directory_callback,
+                                                                       gpointer                   callback_data);
+void               nautilus_directory_call_when_file_ready            (NautilusDirectory         *directory,
+                                                                       NautilusFile              *file,
+                                                                       NautilusFileAttributes     file_attributes,
+                                                                       NautilusFileCallback       file_callback,
+                                                                       gpointer                   callback_data);
+
+void               nautilus_directory_cancel_directory_callback       (NautilusDirectory         *directory,
+                                                                       NautilusDirectoryCallback  directory_callback,
+                                                                       gpointer                   callback_data);
+void               nautilus_directory_cancel_file_callback            (NautilusDirectory         *directory,
+                                                                       NautilusFile              *file,
+                                                                       NautilusFileCallback       file_callback,
+                                                                       gpointer                   callback_data);
+
 void               nautilus_directory_cancel_callback_internal        (NautilusDirectory         *directory,
 								       NautilusFile              *file,
 								       NautilusDirectoryCallback  directory_callback,
@@ -187,7 +176,6 @@ void               nautilus_directory_emit_load_error                 (NautilusD
 NautilusDirectory *nautilus_directory_get_internal                    (GFile                     *location,
 								       gboolean                   create);
 char *             nautilus_directory_get_name_for_self_as_new_file   (NautilusDirectory         *directory);
-Request            nautilus_directory_set_up_request                  (NautilusFileAttributes     file_attributes);
 
 /* Interface to the file list. */
 NautilusFile *     nautilus_directory_find_file_by_name               (NautilusDirectory         *directory,
@@ -221,3 +209,10 @@ void               nautilus_directory_remove_file_from_work_queue     (NautilusD
 
 /* debugging functions */
 int                nautilus_directory_number_outstanding              (void);
+gboolean           nautilus_directory_verify_counters                 (NautilusDirectory *directory);
+
+/* callback related functions */
+NautilusDirectoryCallbacks *
+nautilus_directory_callbacks_new (void);
+void
+nautilus_directory_callbacks_free (NautilusDirectoryCallbacks *callbacks);

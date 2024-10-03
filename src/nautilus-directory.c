@@ -172,10 +172,7 @@ nautilus_directory_finalize (GObject *object)
         g_source_remove (directory->details->dequeue_pending_idle_id);
     }
 
-    if (directory->details->call_ready_idle_id != 0)
-    {
-        g_source_remove (directory->details->call_ready_idle_id);
-    }
+    nautilus_directory_callbacks_free (directory->details->callbacks);
 
     if (directory->details->location)
     {
@@ -316,6 +313,7 @@ nautilus_directory_init (NautilusDirectory *directory)
     directory->details->high_priority_queue = nautilus_hash_queue_new (g_direct_hash, g_direct_equal, g_object_ref, g_object_unref);
     directory->details->low_priority_queue = nautilus_hash_queue_new (g_direct_hash, g_direct_equal, g_object_ref, g_object_unref);
     directory->details->extension_queue = nautilus_hash_queue_new (g_direct_hash, g_direct_equal, g_object_ref, g_object_unref);
+    directory->details->callbacks = nautilus_directory_callbacks_new ();
     directory->details->monitor_table = g_hash_table_new (NULL, NULL);
 }
 
@@ -1789,6 +1787,13 @@ GList *
 nautilus_directory_get_file_list (NautilusDirectory *directory)
 {
     return NAUTILUS_DIRECTORY_CLASS (G_OBJECT_GET_CLASS (directory))->get_file_list (directory);
+}
+
+gboolean
+nautilus_directory_has_file_list (NautilusDirectory *directory)
+{
+    return directory->details->directory_loaded &&
+           directory->details->directory_loaded_sent_notification;
 }
 
 gboolean

@@ -225,6 +225,8 @@ libnautilus_sources = [
   'nautilus-program-choosing.h',
   'nautilus-recent-servers.c',
   'nautilus-recent-servers.h',
+  'nautilus-request.c',
+  'nautilus-request.h',
   'nautilus-search-directory.c',
   'nautilus-search-directory.h',
   'nautilus-search-directory-file.c',

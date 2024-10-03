@@ -26,6 +26,7 @@
 #include "nautilus-directory-notify.h"
 #include "nautilus-directory-private.h"
 #include "nautilus-file-private.h"
+#include "nautilus-request.h"
 #include <glib/gi18n.h>
 
 G_DEFINE_TYPE (NautilusVFSFile, nautilus_vfs_file, NAUTILUS_TYPE_FILE);
@@ -64,8 +65,15 @@ vfs_file_call_when_ready (NautilusFile           *file,
 
     directory = nautilus_file_get_directory (file);
 
-    nautilus_directory_call_when_ready_internal (directory, file, file_attributes,
-                                                 FALSE, NULL, callback, callback_data);
+    if (directory == NULL)
+    {
+        /* No parent directory, call callback directly */
+        (*callback)(file, callback_data);
+        return;
+    }
+
+    nautilus_directory_call_when_file_ready (directory, file, file_attributes,
+                                             callback, callback_data);
 }
 
 static void
@@ -77,20 +85,24 @@ vfs_file_cancel_call_when_ready (NautilusFile         *file,
 
     directory = nautilus_file_get_directory (file);
 
-    nautilus_directory_cancel_callback_internal (directory, file, NULL,
-                                                 callback, callback_data);
+    if (directory == NULL)
+    {
+        /* No parent directory, no callback */
+        return;
+    }
+
+    nautilus_directory_cancel_file_callback (directory,
+                                             file,
+                                             callback,
+                                             callback_data);
 }
 
 static gboolean
 vfs_file_check_if_ready (NautilusFile           *file,
                          NautilusFileAttributes  file_attributes)
 {
-    NautilusDirectory *directory;
-
-    directory = nautilus_file_get_directory (file);
-
-    return nautilus_directory_check_if_ready_internal (directory, file,
-                                                       file_attributes);
+    Request request = nautilus_request_new (file_attributes, FALSE);
+    return nautilus_request_file_is_satisfied (request, file);
 }
 
 static void
