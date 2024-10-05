@@ -1,14 +1,9 @@
 {
-  "app-id": "org.gnome.NautilusDevel",
+  "app-id": "org.gnome.Nautilus",
   "runtime": "org.gnome.Platform",
-  "runtime-version": "master",
+  "runtime-version": "45",
   "sdk": "org.gnome.Sdk",
   "command": "nautilus",
-  "tags": [
-    "devel",
-    "development",
-    "nightly"
-  ],
   "finish-args": [
     "--device=dri",
     "--share=ipc",
@@ -116,6 +111,152 @@
       ]
     },
     {
+      "name": "totem-pl-parser",
+      "buildsystem": "meson",
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://gitlab.gnome.org/GNOME/totem-pl-parser.git"
+        }
+      ]
+    },
+    {
+      "name": "totem-video-thumbnailer",
+      "buildsystem": "meson",
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://gitlab.gnome.org/GNOME/totem-video-thumbnailer.git"
+        }
+      ]
+    },
+    {
+      "name": "popplerdata",
+      "no-autogen": true,
+      "make-install-args": [
+        "prefix=/app"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://poppler.freedesktop.org/poppler-data-0.4.12.tar.gz",
+          "sha256": "c835b640a40ce357e1b83666aabd95edffa24ddddd49b8daff63adb851cdab74",
+          "x-checker-data": {
+            "type": "anitya",
+            "project-id": 3687,
+            "url-template": "https://poppler.freedesktop.org/poppler-data-$version.tar.gz"
+          }
+        }
+      ]
+    },
+    {
+      "name": "poppler",
+      "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_INSTALL_LIBDIR=/app/lib",
+        "-DCMAKE_INSTALL_INCLUDEDIR=/app/include",
+        "-DBUILD_GTK_TESTS=OFF",
+        "-DBUILD_CPP_TESTS=OFF",
+        "-DENABLE_CPP=OFF",
+        "-DENABLE_BOOST=OFF",
+        "-DENABLE_GOBJECT_INTROSPECTION=OFF",
+        "-DENABLE_LIBOPENJPEG=openjpeg2",
+        "-DENABLE_QT5=OFF",
+        "-DENABLE_QT6=OFF"
+      ],
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://poppler.freedesktop.org/poppler-23.08.0.tar.xz",
+          "sha256": "4a4bf7fc903b9f1a2ab7d04b7c5d8220db9bc6261cc73fdb9a826dc272f49aa8",
+          "x-checker-data": {
+            "type": "anitya",
+            "project-id": 3686,
+            "url-template": "https://poppler.freedesktop.org/poppler-$version.tar.xz"
+          }
+        }
+      ]
+    },
+    {
+      "name": "evince",
+      "buildsystem": "meson",
+      "cleanup": [
+        "/share/evince"
+      ],
+      "config-opts": [
+        "-Dviewer=false",
+        "-Dgtk_doc=false",
+        "-Duser_doc=false",
+        "-Dgtk_unix_print=disabled",
+        "-Dintrospection=false",
+        "-Dkeyring=disabled",
+        "-Dthumbnailer=true",
+        "-Dpreviewer=false",
+        "-Dsystemduserunitdir=no",
+        "-Dnautilus=false",
+        "--buildtype=release"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://gitlab.gnome.org/GNOME/evince.git",
+          "branch": "main"
+        }
+      ]
+    },
+    {
+      "name": "gnome-epub-thumbnailer",
+      "buildsystem": "meson",
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://gitlab.gnome.org/GNOME/gnome-epub-thumbnailer.git"
+        }
+      ]
+    },
+    {
+      "name": "gnome-common",
+      "buildsystem": "autotools",
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://gitlab.gnome.org/GNOME/gnome-common.git"
+        }
+      ]
+    },
+    {
+      "name": "gnome-kra-ora-thumbnailer",
+      "buildsystem": "autotools",
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://gitlab.gnome.org/GNOME/gnome-kra-ora-thumbnailer.git"
+        }
+      ]
+    },
+    {
+      "name": "gnome-font-viewer",
+      "buildsystem": "meson",
+      "cleanup": [
+        "/bin/gnome-thumbnail-font",
+        "/include",
+        "/lib/pkgconfig", "/share/pkgconfig",
+        "/share/aclocal",
+        "/man", "/share/man", "/share/gtk-doc",
+        "*.la", ".a",
+        "/lib/girepository-1.0",
+        "/share/gir-1.0",
+        "/share/doc"
+      ],
+      "sources": [
+        {
+          "type": "git",
+          "branch": "main",
+          "url": "https://gitlab.gnome.org/GNOME/gnome-font-viewer.git"
+        }
+      ]
+    },
+    {
       "name": "gnome-autoar",
       "buildsystem": "meson",
       "builddir": true,
@@ -179,15 +320,13 @@
         ]
       },
       "config-opts": [
-        "--libdir=/app/lib",
-        "-Dprofile=Devel",
-        "-Dtests=all"
+        "--libdir=/app/lib"
       ],
       "sources": [
         {
           "type": "git",
           "url": "https://gitlab.gnome.org/GNOME/nautilus.git",
-          "branch": "main"
+          "branch": "gnome-45"
         }
       ]
     }
