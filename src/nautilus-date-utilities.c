@@ -77,17 +77,17 @@ date_to_str (GDateTime *timestamp,
     {
         if (use_24_hour)
         {
-            /* Translators: date and time in 24h format,
-             * i.e. "12/31/2023 23:59" */
+            /* Translators: date and time without seconds in 24h format,
+             * i.e. ""%m/%d/%Y %H:%M" -> "12/31/2023 23:59" */
             /* xgettext:no-c-format */
-            format = _("%m/%d/%Y %H:%M");
+            format = C_("datetime_24h_short_detailed", "%c");
         }
         else
         {
-            /* Translators: date and time in 12h format,
-             * i.e. "12/31/2023 11:59 PM" */
+            /* Translators: date and time without seconds in 12h format,
+             * i.e. "%m/%d/%Y %I:%M %p" -> "12/31/2023 11:59 PM" */
             /* xgettext:no-c-format */
-            format = _("%m/%d/%Y %I:%M %p");
+            format = C_("datetime_12h_short_detailed", "%c");
         }
     }
     else if (use_short_format)
@@ -114,16 +114,18 @@ date_to_str (GDateTime *timestamp,
             if (use_24_hour)
             {
                 /* Translators: this is the word "Today" followed by
-                 * a time in 24h format. i.e. "Today 23:04" */
+                 * a time without seconds in 24h format.
+                 * i.e. "Today %-H:%M" -> "Today 23:04" */
                 /* xgettext:no-c-format */
-                format = _("Today %-H:%M");
+                format = _("Today %X");
             }
             else
             {
                 /* Translators: this is the word Today followed by
-                 * a time in 12h format. i.e. "Today 9:04 PM" */
+                 * a time without seconds in 12h format.
+                 * i.e. "Today %-I:%M %p" -> "Today 9:04 PM" */
                 /* xgettext:no-c-format */
-                format = _("Today %-I:%M %p");
+                format = _("Today %r");
             }
         }
         /* Show the word "Yesterday" and time if date is on yesterday */
@@ -132,43 +134,46 @@ date_to_str (GDateTime *timestamp,
             if (use_24_hour)
             {
                 /* Translators: this is the word Yesterday followed by
-                 * a time in 24h format. i.e. "Yesterday 23:04" */
+                 * a time without seconds in 24h format.
+                 * i.e. "Yesterday %-H:%M" -> "Yesterday 23:04" */
                 /* xgettext:no-c-format */
-                format = _("Yesterday %-H:%M");
+                format = _("Yesterday %X");
             }
             else
             {
                 /* Translators: this is the word Yesterday followed by
-                 * a time in 12h format. i.e. "Yesterday 9:04 PM" */
+                 * a time without seconds in 12h format.
+                 * i.e. "Yesterday %-I:%M %p" -> "Yesterday 9:04 PM" */
                 /* xgettext:no-c-format */
-                format = _("Yesterday %-I:%M %p");
+                format = _("Yesterday %r");
             }
         }
         else
         {
-            /* Translators: this is the day of the month followed by the abbreviated
-             * month name followed by the year i.e. "3 Feb 2015" */
+            /* Translators: this is the day of the month followed by
+             * the abbreviated month name followed by the year
+             * i.e. "%-e %b %Y" -> "3 Feb 2015" */
             /* xgettext:no-c-format */
-            format = _("%-e %b %Y");
+            format = C_("datetime_short_not_detailed", "%x");
         }
     }
     else
     {
         if (use_24_hour)
         {
-            /* Translators: this is the day number followed by the full month
-             * name followed by the year followed by a time in 24h format
-             * with seconds i.e. "3 February 2015 23:04:00" */
+            /* Translators: this is the day number followed by the full month name
+             * followed by the year followed by a time in 24h format with seconds
+             * i.e. "%-e %B %Y %H:%M:%S" -> "3 February 2015 23:04:00" */
             /* xgettext:no-c-format */
-            format = _("%-e %B %Y %H:%M:%S");
+            format = C_("datetime_24h_long", "%c");
         }
         else
         {
-            /* Translators: this is the day number followed by the full month
-             * name followed by the year followed by a time in 12h format
-             * with seconds i.e. "3 February 2015 09:04:00 PM" */
+            /* Translators: this is the day number followed by the full month name
+             * followed by the year followed by a time in 12h format with seconds
+             * i.e. "%-e %B %Y %I:%M:%S %p" -> "3 February 2015 09:04:00 PM" */
             /* xgettext:no-c-format */
-            format = _("%-e %B %Y %I:%M:%S %p");
+            format = C_("datetime_12h_long", "%c");
         }
     }
 
