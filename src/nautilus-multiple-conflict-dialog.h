@@ -1,0 +1,53 @@
+/*
+ * nautilus-multiple-conflict-dialog.h
+ *
+ * Copyright 2024 Anuraag Reddy Patllollu <>
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+#pragma once
+
+#include <adwaita.h>
+#include <glib.h>
+#include <glib/gi18n.h>
+
+#include "nautilus-file-conflict-dialog.h"
+
+G_BEGIN_DECLS
+
+#define NAUTILUS_TYPE_MULTIPLE_CONFLICT_DIALOG (nautilus_multiple_conflict_dialog_get_type())
+
+G_DECLARE_FINAL_TYPE (NautilusMultipleConflictDialog, nautilus_multiple_conflict_dialog, NAUTILUS, MULTIPLE_CONFLICT_DIALOG, AdwWindow)
+
+NautilusMultipleConflictDialog* nautilus_multiple_conflict_dialog_new (void);
+
+void nautilus_multiple_conflict_dialog_set_conflict_rows (NautilusMultipleConflictDialog *self,
+                                                          GList                          *conflicts,
+                                                          GList                          *dest_names,
+                                                          GList                          *dest_dates,
+                                                          GList                          *src_dates);
+
+void nautilus_multiple_conflict_dialog_delay_buttons_activation (NautilusMultipleConflictDialog *self);
+
+ConflictResponse nautilus_multiple_conflict_dialog_get_response (NautilusMultipleConflictDialog *dialog);
+
+void nautilus_multiple_conflict_dialog_set_rename_rows (NautilusMultipleConflictDialog *self,
+                                                        GList                          *conflicts,
+                                                        GList                          *dest_names,
+                                                        GList                          *dest_no_extension,
+                                                        GList                          *extensions);
+
+G_END_DECLS

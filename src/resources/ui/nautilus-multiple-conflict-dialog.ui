@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="NautilusMultipleConflictDialog" parent="AdwDialog">
+    <property name="title">File Conflicts</property>
+    <property name="content-height">500</property>
+    <property name="content-width">500</property>
+    <child>
+      <object class="AdwToolbarView">
+        <property name="top-bar-style">1</property>
+        <child type="top">
+          <object class="AdwHeaderBar">
+            <property name="show-start-title-buttons">False</property>
+            <property name="show-end-title-buttons">False</property>
+            <child type="start">
+              <object class="GtkButton" id="cancel_button">
+                <property name="label" translatable="yes">_Cancel</property>
+                <property name="use-underline">True</property>
+                <signal name="clicked" handler="cancel_button_clicked" object="NautilusMultipleConflictDialog" swapped="no"/>
+              </object>
+            </child>
+            <child type="end">
+              <object class="GtkButton" id="replace_button">
+                <property name="label" translatable="yes">_Replace</property>
+                <property name="use-underline">True</property>
+                <property name="visible" bind-source="replace_files" bind-property="active" bind-flags="sync-create" />
+                <signal name="clicked" handler="replace_button_clicked" object="NautilusMultipleConflictDialog" swapped="no"/>
+                <style>
+                  <class name="destructive-action" />
+                </style>
+              </object>
+            </child>
+            <child type="end">
+              <object class="GtkButton" id="paste_button">
+                <property name="label" translatable="yes">_Paste</property>
+                <property name="use-underline">True</property>
+                <property name="visible" bind-source="rename_files" bind-property="active" bind-flags="sync-create" />
+                <signal name="clicked" handler="paste_button_clicked" object="NautilusMultipleConflictDialog" swapped="no"/>
+                <style>
+                  <class name="suggested-action" />
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+        <property name="content">
+          <object class="GtkScrolledWindow">
+            <property name="propagate-natural-width">true</property>
+            <property name="max-content-height">300</property>
+            <property name="vexpand">true</property>
+            <child>
+              <object class="GtkBox">
+                <property name="margin-top">18</property>
+                <property name="margin-bottom">18</property>
+                <property name="margin-start">36</property>
+                <property name="margin-end">36</property>
+                <property name="spacing">12</property>
+                <property name="orientation">vertical</property>
+                <child>
+                  <object class="GtkLabel" id="conflict_number_label">
+                    <property name="justify">center</property>
+                    <property name="wrap">True</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkListBox">
+                    <property name="selection-mode">0</property>
+                    <style>
+                      <class name="boxed-list" />
+                    </style>
+                    <child>
+                      <object class="AdwActionRow">
+                        <property name="title" translatable="true">Replace existing files</property>
+                        <property name="activatable-widget">replace_files</property>
+                        <child type="prefix">
+                          <object class="GtkCheckButton" id="replace_files">
+                            <property name="active">true</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwActionRow">
+                        <property name="title" translatable="true">Rename files and paste</property>
+                        <property name="activatable-widget">rename_files</property>
+                        <child type="prefix">
+                          <object class="GtkCheckButton" id="rename_files">
+                            <property name="group">replace_files</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox" id="replacement_view">
+                    <property name="spacing">12</property>
+                    <property name="orientation">1</property>
+                    <property name="visible" bind-source="replace_files" bind-property="active" bind-flags="sync-create" />
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Replacements</property>
+                        <style>
+                          <class name="heading" />
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkListBox" id="replacement_list_box">
+                        <property name="selection-mode">0</property>
+                        <style>
+                          <class name="boxed-list" />
+                        </style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox" id="rename_view">
+                    <property name="spacing">12</property>
+                    <property name="orientation">1</property>
+                    <property name="visible" bind-source="rename_files" bind-property="active" bind-flags="sync-create" />
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Names for Pasted Files</property>
+                        <style>
+                          <class name="heading" />
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkListBox">
+                        <property name="selection-mode">0</property>
+                        <style>
+                          <class name="boxed-list" />
+                        </style>
+                        <child>
+                          <object class="AdwEntryRow" id="rename_entry_row">
+                            <property name="title" translatable="true">Add to File Name</property>
+                            <signal name="changed" handler="rename_entry_row_changed" object="NautilusMultipleConflictDialog" swapped="no"/>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkListBox" id="rename_list_box">
+                        <property name="selection-mode">0</property>
+                        <style>
+                          <class name="boxed-list" />
+                        </style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </property>
+      </object>
+    </child>
+  </template>
+</interface>

@@ -20,6 +20,10 @@ FileConflictResponse * copy_move_conflict_ask_user_action (GtkWindow *parent_win
                                                            GFile     *dest_dir,
                                                            gchar     *suggestion);
 
+FileConflictResponse * copy_move_multiple_conflict_ask_user_action (GtkWindow *parent_window,
+                                                                    gboolean   should_start_inactive,
+                                                                    GList     *conflict_files);
+
 void handle_unsupported_compressed_file (GtkWindow *parent_window,
                                          GFile     *compressed_file);
 

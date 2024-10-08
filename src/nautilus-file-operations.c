@@ -4187,7 +4187,8 @@ static void copy_move_file (CopyMoveJob  *job,
                             GHashTable   *debuting_files,
                             gboolean      overwrite,
                             gboolean     *skipped_file,
-                            gboolean      reset_perms);
+                            gboolean      reset_perms,
+                            char         *rename_dest);
 
 typedef enum
 {
@@ -4438,7 +4439,7 @@ retry:
                                          g_file_info_get_name (info));
             copy_move_file (copy_job, src_file, *dest, same_fs, FALSE, &dest_fs_type,
                             source_info, transfer_info, NULL, FALSE, &local_skipped_file,
-                            reset_perms);
+                            reset_perms, NULL);
 
             if (local_skipped_file)
             {
@@ -4757,6 +4758,27 @@ query_fs_type (GFile        *file,
 }
 
 static FileConflictResponse *
+handle_multiple_copy_move_conflict (CommonJob *job,
+                                    GList     *conflict_files,
+                                    GFile     *dest_dir)
+{
+    FileConflictResponse *response;
+
+    g_timer_stop (job->time);
+    nautilus_progress_info_pause (job->progress);
+
+    gboolean should_start_inactive = is_long_job (job);
+    response = copy_move_multiple_conflict_ask_user_action (job->parent_window,
+                                                            should_start_inactive,
+                                                            conflict_files);
+
+    nautilus_progress_info_resume (job->progress);
+    g_timer_continue (job->time);
+
+    return response;
+}
+
+static FileConflictResponse *
 handle_copy_move_conflict (CommonJob *job,
                            GFile     *src,
                            GFile     *dest,
@@ -4871,7 +4893,8 @@ copy_move_file (CopyMoveJob   *copy_job,
                 GHashTable    *debuting_files,
                 gboolean       overwrite,
                 gboolean      *skipped_file,
-                gboolean       reset_perms)
+                gboolean       reset_perms,
+                char          *rename_dest)
 {
     GFile *dest, *new_dest;
     g_autofree gchar *dest_uri = NULL;
@@ -4886,6 +4909,11 @@ copy_move_file (CopyMoveJob   *copy_job,
     gboolean handled_invalid_filename;
 
     job = (CommonJob *) copy_job;
+
+    if (*skipped_file == TRUE)
+    {
+        return;
+    }
 
     *skipped_file = FALSE;
 
@@ -5029,6 +5057,12 @@ retry:
     pdata.last_size = 0;
     pdata.source_info = source_info;
     pdata.transfer_info = transfer_info;
+
+    if (rename_dest != NULL)
+    {
+        dest = get_target_file_for_display_name (dest_dir,
+                                                 rename_dest);
+    }
 
     if (copy_job->is_move)
     {
@@ -5382,6 +5416,18 @@ out:
 }
 
 static void
+free_file_data (gpointer data)
+{
+    FileData *file_data = (FileData *) data;
+    if (file_data)
+    {
+        g_object_unref (file_data->dest);
+        g_free (file_data->response);
+        g_free (file_data);
+    }
+}
+
+static void
 copy_files (CopyMoveJob  *job,
             const char   *dest_fs_id,
             SourceInfo   *source_info,
@@ -5399,11 +5445,60 @@ copy_files (CopyMoveJob  *job,
     char *dest_fs_type;
     GFileInfo *inf;
     gboolean reset_perms;
+    GList *files_data = NULL;
+    GList *conflict_files = NULL;
+    FileConflictResponse *dialog_response;
 
     dest_fs_type = NULL;
     reset_perms = FALSE;
 
     common = &job->common;
+
+    for (l = job->files;
+         l != NULL && !job_aborted (common);
+         l = l->next)
+    {
+        src = l->data;
+        g_autofree gchar *filename = g_file_get_basename (src);
+
+        if (job->destination)
+        {
+            dest = g_object_ref (job->destination);
+        }
+        else
+        {
+            dest = g_file_get_parent (src);
+        }
+
+        if (dest)
+        {
+            GFile *dest_file = g_file_get_child (dest, filename);
+
+            FileData *file_data = g_new (FileData, 1);
+            file_data->src = src;
+            file_data->dest = dest_file;
+            file_data->response = g_new (FileConflictResponse, 1);
+
+            if (g_file_query_exists (dest_file, NULL))
+            {
+                file_data->conflict = TRUE;
+                conflict_files = g_list_append (conflict_files, file_data);
+            }
+
+            files_data = g_list_append (files_data, file_data);
+
+            g_object_unref (dest);
+        }
+    }
+
+    dialog_response = handle_multiple_copy_move_conflict (common, conflict_files, dest);
+
+    if (dialog_response->id == CONFLICT_RESPONSE_CANCEL)
+    {
+        file_conflict_response_free (dialog_response);
+        abort_job (&job->common);
+        goto copy_out;
+    }
 
     report_copy_progress (job, source_info, transfer_info);
 
@@ -5429,11 +5524,14 @@ copy_files (CopyMoveJob  *job,
 
     unique_names = (job->destination == NULL);
     i = 0;
-    for (l = job->files;
-         l != NULL && !job_aborted (common);
-         l = l->next)
+
+    GList *fd;
+    for (fd = files_data, l = job->files;
+         fd != NULL && l != NULL && !job_aborted (common);
+         fd = fd->next, l = l->next)
     {
         src = l->data;
+        FileData *file_data = fd->data;
 
         same_fs = FALSE;
         if (dest_fs_id)
@@ -5451,14 +5549,28 @@ copy_files (CopyMoveJob  *job,
         }
         if (dest)
         {
+            gboolean overwrite = FALSE;
             skipped_file = FALSE;
+
+            if (dialog_response->id == CONFLICT_RESPONSE_REPLACE)
+            {
+                if (file_data->response->id == CONFLICT_RESPONSE_SKIP)
+                {
+                    skipped_file = TRUE;
+                }
+                else if (file_data->response->id == CONFLICT_RESPONSE_REPLACE)
+                {
+                    overwrite = TRUE;
+                }
+            }
             copy_move_file (job, src, dest,
                             same_fs, unique_names,
                             &dest_fs_type,
                             source_info, transfer_info,
                             job->debuting_files,
-                            FALSE, &skipped_file,
-                            reset_perms);
+                            overwrite, &skipped_file,
+                            reset_perms,
+                            file_data->response->new_name);
             g_object_unref (dest);
 
             if (skipped_file)
@@ -5470,7 +5582,9 @@ copy_files (CopyMoveJob  *job,
         i++;
     }
 
+copy_out:
     g_free (dest_fs_type);
+    g_list_free_full (files_data, free_file_data);
 }
 
 static void
@@ -6127,7 +6241,7 @@ move_files (CopyMoveJob   *job,
                         same_fs, FALSE, dest_fs_type,
                         source_info, transfer_info,
                         job->debuting_files,
-                        fallback->overwrite, &skipped_file, FALSE);
+                        fallback->overwrite, &skipped_file, FALSE, NULL);
         i++;
 
         if (skipped_file)

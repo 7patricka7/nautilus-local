@@ -27,6 +27,7 @@
     <file>ui/nautilus-files-view.ui</file>
     <file>ui/nautilus-operations-ui-manager-request-passphrase.ui</file>
     <file>ui/nautilus-grid-cell.ui</file>
+    <file>ui/nautilus-multiple-conflict-dialog.ui</file>
     <file>ui/nautilus-name-cell.ui</file>
     <file>ui/nautilus-network-address-bar.ui</file>
     <file>ui/nautilus-network-cell.ui</file>
