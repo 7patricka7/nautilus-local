@@ -51,6 +51,7 @@ struct _NautilusListBaseClass
 };
 
 void nautilus_list_base_disable_dnd (NautilusListBase *self);
+void nautilus_list_base_force_double_click_for_files (NautilusListBase *self);
 NautilusViewItem *nautilus_list_base_get_backing_item (NautilusListBase *self);
 GtkWidget *nautilus_list_base_get_selected_item_ui (NautilusListBase  *self);
 GVariant *nautilus_list_base_get_sort_state        (NautilusListBase  *self);

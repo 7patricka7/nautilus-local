@@ -48,6 +48,7 @@ struct _NautilusListBasePrivate
     GtkWidget *scrolled_window;
 
     gboolean dnd_disabled;
+    gboolean force_double_click_for_files;
     gboolean single_click_mode;
 
     gboolean activate_on_release;
@@ -250,6 +251,29 @@ nautilus_list_base_add_overlay (NautilusListBase *self,
     gtk_overlay_add_overlay (GTK_OVERLAY (priv->overlay), widget);
 }
 
+static gboolean
+should_activate_on_single_click (NautilusListBase *self,
+                                 NautilusViewCell *cell)
+{
+    NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
+    g_autoptr (NautilusViewItem) item = NULL;
+    g_autoptr (NautilusFile) file = NULL;
+
+    if (!priv->single_click_mode)
+    {
+        return FALSE;
+    }
+
+    if (!priv->force_double_click_for_files)
+    {
+        return TRUE;
+    }
+
+    item = nautilus_view_cell_get_item (cell);
+    file = nautilus_view_item_get_file (item);
+    return nautilus_file_is_directory (file);
+}
+
 static void
 on_item_click_pressed (GtkGestureClick *gesture,
                        gint             n_press,
@@ -270,7 +294,7 @@ on_item_click_pressed (GtkGestureClick *gesture,
 
     /* Before anything else, store event state to be read by other handlers. */
     priv->deny_background_click = TRUE;
-    priv->activate_on_release = (priv->single_click_mode &&
+    priv->activate_on_release = (should_activate_on_single_click (self, cell) &&
                                  button == GDK_BUTTON_PRIMARY &&
                                  n_press == 1 &&
                                  !selection_mode);
@@ -1408,6 +1432,14 @@ nautilus_list_base_disable_dnd (NautilusListBase *self)
     NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
 
     priv->dnd_disabled = TRUE;
+}
+
+void
+nautilus_list_base_force_double_click_for_files (NautilusListBase *self)
+{
+    NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
+
+    priv->force_double_click_for_files = TRUE;
 }
 
 /**
