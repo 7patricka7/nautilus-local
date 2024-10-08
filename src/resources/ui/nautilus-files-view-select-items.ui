@@ -31,32 +31,52 @@
           </object>
         </child>
         <property name="content">
-          <object class="GtkBox">
-            <property name="orientation">vertical</property>
-            <property name="margin-top">18</property>
-            <property name="margin-bottom">18</property>
-            <property name="margin-start">18</property>
-            <property name="margin-end">18</property>
-            <property name="spacing">6</property>
+          <object class="AdwPreferencesPage">
             <child>
-              <object class="GtkLabel">
-                <property name="halign">start</property>
-                <property name="label" translatable="yes">Pattern</property>
-                <attributes>
-                  <attribute name="weight" value="bold"/>
-                </attributes>
-              </object>
-            </child>
-            <child>
-              <object class="GtkEntry" id="pattern_entry">
-                <property name="hexpand">True</property>
-                <property name="activates_default">True</property>
-                <property name="input-hints">no-spellcheck</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkLabel" id="example">
-                <property name="halign">start</property>
+              <object class="AdwPreferencesGroup">
+                <child>
+                  <object class="AdwEntryRow" id="pattern_entry">
+                    <property name="title" translatable="yes">_Pattern</property>
+                    <property name="use-underline">True</property>
+                    <property name="activates_default">True</property>
+                    <property name="input-hints">no-spellcheck</property>
+                    <child type="suffix">
+                      <object class="GtkMenuButton" id="updates_info_button">
+                        <property name="tooltip-text" translatable="yes">More Information</property>
+                        <property name="icon-name">info-outline-symbolic</property>
+                        <property name="valign">center</property>
+                        <property name="popover">
+                          <object class="GtkPopover">
+                            <property name="child">
+                              <object class="GtkLabel" id="example_label">
+                                <property name="halign">center</property>
+                                <property name="margin-start">6</property>
+                                <property name="margin-end">6</property>
+                                <property name="margin-top">6</property>
+                                <property name="margin-bottom">6</property>
+                                <property name="wrap">True</property>
+                                <property name="max-width-chars">50</property>
+                                <property name="valign">center</property>
+                              </object>
+                            </property>
+                          </object>
+                        </property>
+                        <style>
+                          <class name="flat"/>
+                        </style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="example">
+                    <property name="margin-top">6</property>
+                    <property name="xalign">0</property>
+                    <style>
+                      <class name="caption"/>
+                    </style>
+                  </object>
+                </child>
               </object>
             </child>
           </object>

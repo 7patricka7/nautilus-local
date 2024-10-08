@@ -1889,20 +1889,19 @@ static void
 select_pattern (NautilusFilesView *view)
 {
     g_autoptr (GtkBuilder) builder = NULL;
-    GtkWidget *dialog;
-    GtkWidget *example;
-    GtkWidget *entry, *select_button;
-    char *example_pattern;
+    GtkWidget *dialog, *entry, *example_label, *select_button;
+    g_autoptr(GString) example_pattern = NULL;
 
     builder = gtk_builder_new_from_resource ("/org/gnome/nautilus/ui/nautilus-files-view-select-items.ui");
     dialog = GTK_WIDGET (gtk_builder_get_object (builder, "select_items_dialog"));
 
-    example = GTK_WIDGET (gtk_builder_get_object (builder, "example"));
-    example_pattern = g_strdup_printf ("%s<i>%s</i> ",
-                                       _("Examples: "),
-                                       "*.png, file\?\?.txt, pict*.\?\?\?");
-    gtk_label_set_markup (GTK_LABEL (example), example_pattern);
-    g_free (example_pattern);
+    example_label = GTK_WIDGET (gtk_builder_get_object (builder, "example_label"));
+
+    example_pattern = g_string_new (_("Examples for supported patterns:\n"));
+    example_pattern = g_string_append (example_pattern, _("\n• “*” matches multiple characters, e.g. “*.png” matches “image.png” and “Scanned Document.png”;"));
+    example_pattern = g_string_append (example_pattern, _("\n• “?” matches a single character, e.g. “File?.txt” matches “File3.txt” and “FileB.txt”, but not “File Two.txt”."));
+
+    gtk_label_set_label (GTK_LABEL (example_label), example_pattern->str);
 
     entry = GTK_WIDGET (gtk_builder_get_object (builder, "pattern_entry"));
     select_button = GTK_WIDGET (gtk_builder_get_object (builder, "select_button"));
