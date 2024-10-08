@@ -19,6 +19,8 @@
  *  Authors: Darin Adler <darin@bentspoon.com>
  */
 
+#include <config.h>
+
 #include "nautilus-properties-window.h"
 
 #include <adwaita.h>
@@ -31,6 +33,10 @@
 #include <nautilus-extension.h>
 #include <string.h>
 #include <sys/stat.h>
+
+#ifdef HAVE_UDISKS
+#include <udisks2/udisks/udisks.h>
+#endif
 
 #define GNOME_DESKTOP_USE_UNSTABLE_API
 #include <libgnome-desktop/gnome-desktop-thumbnail.h>
@@ -2393,45 +2399,84 @@ static void
 setup_volume_information (NautilusPropertiesWindow *self)
 {
     NautilusFile *file;
-    const char *fs_type;
+    g_autofree gchar *fs_type = NULL;
     g_autofree gchar *uri = NULL;
     g_autoptr (GFile) location = NULL;
-    g_autoptr (GFileInfo) info = NULL;
 
     file = get_file (self);
 
     uri = nautilus_file_get_activation_uri (file);
 
     location = g_file_new_for_uri (uri);
-    info = g_file_query_filesystem_info (location, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE,
-                                         NULL, NULL);
-    if (info)
+
+#ifdef HAVE_UDISKS
+    g_autoptr (GFileInfo) dev_info = NULL;
+
+    if (g_file_is_native (location))
     {
-        fs_type = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE);
+        dev_info = g_file_query_info (location, G_FILE_ATTRIBUTE_UNIX_DEVICE,
+                                      G_FILE_QUERY_INFO_NONE, NULL, NULL);
+    }
 
-        /* We shouldn't be using filesystem::type, it's not meant for UI.
-         * https://gitlab.gnome.org/GNOME/nautilus/-/issues/98
-         *
-         * Until we fix that issue, workaround this common outrageous case. */
-        if (g_strcmp0 (fs_type, "msdos") == 0)
-        {
-            fs_type = "FAT";
-        }
+    if (dev_info != NULL)
+    {
+        gint dev_id = g_file_info_get_attribute_uint32 (dev_info, G_FILE_ATTRIBUTE_UNIX_DEVICE);
+        g_autoptr (GError) error = NULL;
+        g_autoptr (UDisksClient) client = udisks_client_new_sync (NULL, &error);
 
-        if (fs_type != NULL)
+        if (client != NULL && error == NULL)
         {
-            /* Translators: %s will be filled with a filesystem type, such as 'ext4' or 'msdos'. */
-            g_autofree gchar *fs_label = g_strdup_printf (_("%s Filesystem"), fs_type);
-            gchar *cap_label = nautilus_capitalize_str (fs_label);
-            if (cap_label != NULL)
+            g_autoptr (UDisksBlock) block = udisks_client_get_block_for_dev (client, dev_id);
+
+            if (block != NULL)
             {
-                g_free (fs_label);
-                fs_label = cap_label;
-            }
+                const gchar *usage = udisks_block_get_id_usage (block);
+                const gchar *type = udisks_block_get_id_type (block);
+                const gchar *version = udisks_block_get_id_version (block);
+                gboolean fs_is_fat = g_strcmp0 (type, "vfat") == 0;
 
-            gtk_label_set_text (self->type_file_system_label, fs_label);
-            gtk_widget_set_visible (GTK_WIDGET (self->type_file_system_label), TRUE);
+                fs_type = udisks_client_get_id_for_display (client,
+                                                            usage,
+                                                            type,
+                                                            version,
+                                                            fs_is_fat);
+            }
         }
+    }
+#endif
+
+    if (fs_type == NULL)
+    {
+        g_autoptr (GFileInfo) fs_info = g_file_query_filesystem_info (location,
+                                                                      G_FILE_ATTRIBUTE_FILESYSTEM_TYPE,
+                                                                      NULL, NULL);
+
+        if (fs_info != NULL)
+        {
+            const char *gio_fs_type = g_file_info_get_attribute_string (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE);
+
+            /* We shouldn't be using filesystem::type, it's not meant for UI.
+             * https://gitlab.gnome.org/GNOME/nautilus/-/issues/98
+             *
+             * Until we fix that issue, workaround this common outrageous case. */
+            if (g_str_equal (gio_fs_type, "msdos"))
+            {
+                fs_type = g_strdup ("FAT");
+            }
+            else
+            {
+                fs_type = nautilus_capitalize_str (gio_fs_type);
+            }
+        }
+    }
+
+    if (fs_type != NULL)
+    {
+        /* Translators: %s will be filled with a filesystem type, such as 'Ext4' or 'FAT'. */
+        g_autofree gchar *fs_label = g_strdup_printf (_("%s Filesystem"), fs_type);
+
+        gtk_label_set_text (self->type_file_system_label, fs_label);
+        gtk_widget_set_visible (GTK_WIDGET (self->type_file_system_label), TRUE);
     }
 }
 

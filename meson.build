@@ -131,6 +131,10 @@ cloudproviders = []
 if get_option('cloudproviders')
   cloudproviders = dependency('cloudproviders', version: '>= 0.3.1')
 endif
+udisks = []
+if get_option('udisks')
+  udisks = dependency('udisks2', version: '>= 2.7.5')
+endif
 gi_docgen = find_program('gi-docgen', required: get_option('docs'))
 
 ####################
@@ -172,6 +176,7 @@ conf.set_quoted('VERSION', version_string)
 conf.set('ENABLE_PACKAGEKIT', get_option('packagekit'))
 conf.set('HAVE_SELINUX', get_option('selinux'))
 conf.set('HAVE_CLOUDPROVIDERS', get_option('cloudproviders'))
+conf.set('HAVE_UDISKS', get_option('udisks'))
 
 if gtk_x11.found()
   conf.set('HAVE_GTK_X11', 1)

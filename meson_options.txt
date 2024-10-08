@@ -44,6 +44,12 @@ option(
   value: true,
   description: 'Enable the cloudproviders support',
 )
+option(
+  'udisks',
+  type: 'boolean',
+  value: true,
+  description: 'Enable support for more readable filesystem labels',
+)
 ################
 # End features #
 ################
