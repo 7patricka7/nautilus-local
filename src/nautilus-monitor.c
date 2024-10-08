@@ -37,6 +37,9 @@ struct NautilusMonitor
     GFile *location;
 };
 
+G_LOCK_DEFINE_STATIC (monitor_lock);
+
+static GHashTable *moved_hints = NULL;
 static gboolean call_consume_changes_idle_id = 0;
 
 static gboolean
@@ -77,20 +80,46 @@ mount_removed (GVolumeMonitor *volume_monitor,
 }
 
 static void
+ensure_moved_files_hint_hash (void)
+{
+    static gsize init_value = 0;
+
+    if (g_once_init_enter (&init_value))
+    {
+        moved_hints = g_hash_table_new_full (g_file_hash, (GEqualFunc) g_file_equal,
+                                             g_object_unref, g_object_unref);
+        g_once_init_leave (&init_value, 1);
+    }
+}
+
+static GFile *
+get_moved_hint_src_from_dest (GFile *location)
+{
+    GHashTableIter iter;
+    gpointer key, value;
+
+    G_LOCK (monitor_lock);
+    g_hash_table_iter_init (&iter, moved_hints);
+    while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+        if (g_file_equal (location, value))
+        {
+            G_UNLOCK (monitor_lock);
+            return key;
+        }
+    }
+    G_UNLOCK (monitor_lock);
+
+    return NULL;
+}
+
+static void
 dir_changed (GFileMonitor      *monitor,
              GFile             *child,
              GFile             *other_file,
              GFileMonitorEvent  event_type,
              gpointer           user_data)
 {
-    char *to_uri;
-
-    to_uri = NULL;
-    if (other_file)
-    {
-        to_uri = g_file_get_uri (other_file);
-    }
-
     switch (event_type)
     {
         default:
@@ -124,9 +153,49 @@ dir_changed (GFileMonitor      *monitor,
             nautilus_file_changes_queue_file_added (child);
         }
         break;
-    }
 
-    g_free (to_uri);
+        case G_FILE_MONITOR_EVENT_MOVED_IN:
+        {
+            if (other_file == NULL)
+            {
+                other_file = get_moved_hint_src_from_dest (child);
+            }
+            if (other_file != NULL)
+            {
+                nautilus_file_changes_queue_file_moved (other_file, child);
+            }
+            else
+            {
+                nautilus_file_changes_queue_file_added (child);
+            }
+        }
+        break;
+
+        case G_FILE_MONITOR_EVENT_MOVED_OUT:
+        {
+            if (other_file == NULL)
+            {
+                G_LOCK (monitor_lock);
+                other_file = g_hash_table_lookup (moved_hints, child);
+                G_UNLOCK (monitor_lock);
+            }
+            if (other_file != NULL)
+            {
+                nautilus_file_changes_queue_file_moved (child, other_file);
+            }
+            else
+            {
+                nautilus_file_changes_queue_file_removed (child);
+            }
+        }
+        break;
+
+        case G_FILE_MONITOR_EVENT_RENAMED:
+        {
+            nautilus_file_changes_queue_file_moved (child, other_file);
+        }
+        break;
+    }
 
     schedule_call_consume_changes ();
 }
@@ -138,12 +207,16 @@ nautilus_monitor_directory (GFile *location)
     NautilusMonitor *ret;
 
     ret = g_slice_new0 (NautilusMonitor);
-    dir_monitor = g_file_monitor_directory (location, G_FILE_MONITOR_WATCH_MOUNTS, NULL, NULL);
+    dir_monitor = g_file_monitor_directory (location,
+                                            G_FILE_MONITOR_WATCH_MOUNTS | G_FILE_MONITOR_WATCH_MOVES,
+                                            NULL, NULL);
 
     if (dir_monitor != NULL)
     {
         ret->monitor = dir_monitor;
     }
+
+    ensure_moved_files_hint_hash ();
 
     /* Currently, some GVfs backends which support monitoring never emit
      * G_FILE_MONITOR_EVENT_UNMOUNTED, nor _DELETED events when the location
@@ -169,6 +242,33 @@ nautilus_monitor_directory (GFile *location)
 
     /* We return a monitor even on failure, so we can avoid later trying again */
     return ret;
+}
+
+void
+nautilus_monitor_add_moved_hint (GFile *src,
+                                 GFile *dest)
+{
+    ensure_moved_files_hint_hash ();
+
+    G_LOCK (monitor_lock);
+    g_hash_table_insert (moved_hints, g_object_ref (src), g_object_ref (dest));
+    G_UNLOCK (monitor_lock);
+}
+
+void
+nautilus_monitor_remove_moved_hint (GFile *src,
+                                    GFile *dest)
+{
+    ensure_moved_files_hint_hash ();
+
+    G_LOCK (monitor_lock);
+    GFile *value = g_hash_table_lookup (moved_hints, src);
+
+    if (value != NULL && g_file_equal (value, dest))
+    {
+        g_hash_table_remove (moved_hints, src);
+    }
+    G_UNLOCK (monitor_lock);
 }
 
 void

@@ -5030,6 +5030,8 @@ retry:
     pdata.source_info = source_info;
     pdata.transfer_info = transfer_info;
 
+    nautilus_monitor_add_moved_hint (src, dest);
+
     if (copy_job->is_move)
     {
         res = g_file_move (src, dest,
@@ -5048,6 +5050,8 @@ retry:
                            &pdata,
                            &error);
     }
+
+    nautilus_monitor_remove_moved_hint (src, dest);
 
     if (res)
     {
@@ -5391,7 +5395,6 @@ copy_files (CopyMoveJob  *job,
     GList *l;
     GFile *src;
     gboolean same_fs;
-    int i;
     gboolean skipped_file;
     gboolean unique_names;
     GFile *dest;
@@ -5428,7 +5431,6 @@ copy_files (CopyMoveJob  *job,
     }
 
     unique_names = (job->destination == NULL);
-    i = 0;
     for (l = job->files;
          l != NULL && !job_aborted (common);
          l = l->next)
@@ -5467,7 +5469,6 @@ copy_files (CopyMoveJob  *job,
                 report_copy_progress (job, source_info, transfer_info);
             }
         }
-        i++;
     }
 
     g_free (dest_fs_type);
@@ -5848,6 +5849,7 @@ retry:
     }
 
     error = NULL;
+    nautilus_monitor_add_moved_hint (src, dest);
     if (g_file_move (src, dest,
                      flags,
                      job->cancellable,
@@ -5855,6 +5857,8 @@ retry:
                      NULL,
                      &error))
     {
+        nautilus_monitor_remove_moved_hint (src, dest);
+
         if (debuting_files)
         {
             g_hash_table_replace (debuting_files, g_object_ref (dest), GINT_TO_POINTER (TRUE));
@@ -5872,6 +5876,7 @@ retry:
 
         return;
     }
+    nautilus_monitor_remove_moved_hint (src, dest);
 
     if (IS_IO_ERROR (error, INVALID_FILENAME) &&
         !handled_invalid_filename)
