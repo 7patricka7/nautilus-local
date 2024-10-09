@@ -33,6 +33,7 @@
 
 #include "nautilus-file-operations.h"
 
+#include "glib-object.h"
 #include "nautilus-file-changes-queue.h"
 
 #include "nautilus-progress-info.h"
@@ -59,6 +60,8 @@
 #include "nautilus-file-undo-manager.h"
 #include "nautilus-scheme.h"
 #include "nautilus-ui-utilities.h"
+#include "nautilus-window-slot.h"
+#include "nautilus-window.h"
 
 #ifdef GDK_WINDOWING_X11
 #include <gdk/x11/gdkx.h>

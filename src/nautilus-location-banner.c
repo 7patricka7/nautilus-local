@@ -23,6 +23,8 @@
 #include <adwaita.h>
 #include <string.h>
 
+#include "glib-object.h"
+#include "glib.h"
 #include "nautilus-dbus-launcher.h"
 #include "nautilus-file-operations.h"
 #include "nautilus-file-utilities.h"
@@ -30,6 +32,7 @@
 #include "nautilus-location-banner.h"
 #include "nautilus-enum-types.h"
 #include "nautilus-scheme.h"
+#include "nautilus-trash-monitor.h"
 
 #define FILE_SHARING_SCHEMA_ID "org.gnome.desktop.file-sharing"
 
@@ -167,6 +170,7 @@ get_mode_for_location (GFile *location)
     else if (nautilus_file_is_in_trash (file))
     {
         gboolean auto_emptied = g_settings_get_boolean (gnome_privacy_preferences, "remove-old-trash-files");
+
         return (auto_emptied ?
                 NAUTILUS_LOCATION_BANNER_TRASH_AUTO_EMPTIED :
                 NAUTILUS_LOCATION_BANNER_TRASH);
@@ -178,10 +182,20 @@ get_mode_for_location (GFile *location)
 }
 
 static void
+update_trash_banner_sensitivity (AdwBanner *banner)
+{
+    if (nautilus_trash_monitor_is_empty ())
+        gtk_widget_set_sensitive (GTK_WIDGET (banner), FALSE);
+    else
+        gtk_widget_set_sensitive (GTK_WIDGET (banner), TRUE);
+}
+
+static void
 set_mode (AdwBanner                  *banner,
           NautilusLocationBannerMode  mode)
 {
     const char *button_label = NULL;
+    gboolean banner_is_sensitive = TRUE;
     GCallback callback = NULL;
 
     /* Reset signal handlers. */
@@ -222,9 +236,17 @@ set_mode (AdwBanner                  *banner,
         case NAUTILUS_LOCATION_BANNER_TRASH:
         {
             adw_banner_set_title (banner, "");
+
             button_label = _("_Empty Trash…");
             callback = G_CALLBACK (on_trash_clear_clicked);
 
+            if (nautilus_trash_monitor_is_empty ())
+                banner_is_sensitive = FALSE;
+
+            g_signal_connect_swapped (nautilus_trash_monitor_get (),
+                                      "trash-state-changed",
+                                      G_CALLBACK (update_trash_banner_sensitivity),
+                                      banner);
             g_signal_connect_object (gnome_privacy_preferences,
                                      "changed::remove-old-trash-files",
                                      G_CALLBACK (on_remove_old_trash_files_changed),
@@ -257,6 +279,7 @@ set_mode (AdwBanner                  *banner,
 
     adw_banner_set_button_label (banner, button_label);
     adw_banner_set_revealed (banner, TRUE);
+    gtk_widget_set_sensitive((GtkWidget *)banner, banner_is_sensitive);
 
     if (callback != NULL)
     {
