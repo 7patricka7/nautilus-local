@@ -93,53 +93,39 @@ batch_rename_get_tag_text_representation (TagConstants tag_constants)
 }
 
 static GString *
-batch_rename_replace (gchar *string,
-                      gchar *substring,
-                      gchar *replacement)
+batch_rename_replace (gchar    *string,
+                      gchar    *substring,
+                      gchar    *replacement,
+                      gboolean  use_regex)
 {
     GString *new_string;
-    gchar **splitted_string;
-    gint i, n_splits;
-
-    new_string = g_string_new ("");
+    g_autoptr (GRegex) regex = NULL;
 
     if (substring == NULL || replacement == NULL)
     {
-        g_string_append (new_string, string);
+        return g_string_new (string);
+    }
+
+    if (!use_regex)
+    {
+        new_string = g_string_new (string);
+        g_string_replace (new_string, substring, replacement, 0);
 
         return new_string;
     }
 
-    if (g_utf8_strlen (substring, -1) == 0)
-    {
-        g_string_append (new_string, string);
+    regex = g_regex_new (substring, G_REGEX_RAW, G_REGEX_MATCH_DEFAULT, NULL);
 
-        return new_string;
+    if (regex != NULL && g_regex_match (regex, string, 0, NULL))
+    {
+        g_autofree char *regex_string = NULL;
+
+        regex_string = g_regex_replace (regex, string, -1, 0, replacement, 0, NULL);
+
+        return g_string_new (regex_string);
     }
 
-    splitted_string = g_strsplit (string, substring, -1);
-    if (splitted_string == NULL)
-    {
-        g_string_append (new_string, string);
-
-        return new_string;
-    }
-
-    n_splits = g_strv_length (splitted_string);
-
-    for (i = 0; i < n_splits; i++)
-    {
-        g_string_append (new_string, splitted_string[i]);
-
-        if (i != n_splits - 1)
-        {
-            g_string_append (new_string, replacement);
-        }
-    }
-
-    g_strfreev (splitted_string);
-
-    return new_string;
+    return g_string_new (string);
 }
 
 void
@@ -260,58 +246,58 @@ batch_rename_sort_lists_for_rename (GList    **selection,
     }
 }
 
+static void
+highlight_text (GString    *string,
+                const char *to_highlight)
+{
+    g_autofree char *formatted = NULL;
+    g_autofree char *escaped_sub = g_markup_escape_text (to_highlight, -1);
+
+    formatted = g_strdup_printf ("<span background=\'#f57900\' color='white'>%s</span>",
+                                 escaped_sub);
+    g_string_replace (string, to_highlight, formatted, 0);
+}
+
 /* This function changes the background color of the replaced part of the name */
 GString *
 batch_rename_replace_label_text (const char  *label,
-                                 const gchar *substring)
+                                 const gchar *substring,
+                                 gboolean     use_regex)
 {
     GString *new_label;
-    gchar **splitted_string;
-    gchar *token;
-    gint i, n_splits;
-
-    new_label = g_string_new ("");
+    g_autoptr (GRegex) regex = NULL;
+    g_autoptr (GMatchInfo) match_info = NULL;
 
     if (substring == NULL || g_strcmp0 (substring, "") == 0)
     {
-        token = g_markup_escape_text (label, -1);
-        new_label = g_string_append (new_label, token);
-        g_free (token);
+        g_autofree char *escaped = g_markup_escape_text (label, -1);
 
-        return new_label;
+        return g_string_new (escaped);
     }
 
-    splitted_string = g_strsplit (label, substring, -1);
-    if (splitted_string == NULL)
+    new_label = g_string_new (label);
+
+    if (use_regex)
     {
-        token = g_markup_escape_text (label, -1);
-        new_label = g_string_append (new_label, token);
-        g_free (token);
+        regex = g_regex_new (substring, G_REGEX_RAW, G_REGEX_MATCH_DEFAULT, NULL);
 
-        return new_label;
-    }
-
-    n_splits = g_strv_length (splitted_string);
-
-    for (i = 0; i < n_splits; i++)
-    {
-        token = g_markup_escape_text (splitted_string[i], -1);
-        new_label = g_string_append (new_label, token);
-
-        g_free (token);
-
-        if (i != n_splits - 1)
+        if (regex != NULL)
         {
-            token = g_markup_escape_text (substring, -1);
-            g_string_append_printf (new_label,
-                                    "<span background=\'#f57900\' color='white'>%s</span>",
-                                    token);
+            g_regex_match (regex, label, 0, &match_info);
 
-            g_free (token);
+            while (match_info != NULL && g_match_info_matches (match_info))
+            {
+                g_autofree char *match = g_match_info_fetch (match_info, 0);
+
+                highlight_text (new_label, match);
+                g_match_info_next (match_info, NULL);
+            }
         }
     }
-
-    g_strfreev (splitted_string);
+    else
+    {
+        highlight_text (new_label, substring);
+    }
 
     return new_label;
 }
@@ -492,7 +478,8 @@ batch_rename_dialog_get_new_names_list (NautilusBatchRenameDialogMode  mode,
                                         GList                         *text_chunks,
                                         GList                         *selection_metadata,
                                         gchar                         *entry_text,
-                                        gchar                         *replace_text)
+                                        gchar                         *replace_text,
+                                        gboolean                       use_regex)
 {
     GList *l;
     GList *result;
@@ -524,7 +511,8 @@ batch_rename_dialog_get_new_names_list (NautilusBatchRenameDialogMode  mode,
         {
             new_name = batch_rename_replace (file_name->str,
                                              entry_text,
-                                             replace_text);
+                                             replace_text,
+                                             use_regex);
             result = g_list_prepend (result, new_name);
         }
 
@@ -771,7 +759,7 @@ format_date_time (GDateTime *date_time)
     date = g_date_time_format (date_time, "%x");
     if (strstr (date, "/") != NULL)
     {
-        formated_date = batch_rename_replace (date, "/", "-");
+        formated_date = batch_rename_replace (date, "/", "-", FALSE);
     }
     else
     {
