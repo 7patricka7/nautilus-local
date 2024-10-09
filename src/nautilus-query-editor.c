@@ -170,14 +170,14 @@ find_enclosing_mount_cb (GObject      *source_object,
         else if (!nautilus_tracker_directory_is_tracked (editor->location))
         {
             adw_status_page_set_title (ADW_STATUS_PAGE (editor->status_page),
-                                       _("Folder Not in Search Locations"));
+                                       _("Folder Not Indexed"));
             gtk_widget_set_visible (editor->search_info_button, TRUE);
             gtk_widget_set_visible (editor->search_settings_button, TRUE);
         }
         else if (nautilus_tracker_directory_is_single (editor->location))
         {
             adw_status_page_set_title (ADW_STATUS_PAGE (editor->status_page),
-                                       _("Subfolders Not in Search Locations"));
+                                       _("Subfolders Not Indexed"));
             gtk_widget_set_visible (editor->search_info_button, TRUE);
             gtk_widget_set_visible (editor->search_settings_button, TRUE);
 
