@@ -73,6 +73,7 @@
 #include "nautilus-previewer.h"
 #include "nautilus-program-choosing.h"
 #include "nautilus-properties-window.h"
+#include "nautilus-recent-directory.h"
 #include "nautilus-recent-servers.h"
 #include "nautilus-rename-file-popover.h"
 #include "nautilus-scheme.h"
@@ -3877,7 +3878,7 @@ real_check_empty_states (NautilusFilesView *view)
             adw_status_page_set_title (status_page, _("No Starred Files"));
             adw_status_page_set_description (status_page, NULL);
         }
-        else if (g_file_has_uri_scheme (priv->location, SCHEME_RECENT))
+        else if (g_file_has_uri_scheme (priv->location, SCHEME_NAUTILUS_RECENT))
         {
             adw_status_page_set_icon_name (status_page, "document-open-recent-symbolic");
             adw_status_page_set_title (status_page, _("No Recent Files"));
@@ -8946,6 +8947,12 @@ load_directory (NautilusFilesView *view,
     {
         nautilus_directory_unref (priv->directory);
         priv->directory = nautilus_directory_ref (directory);
+    }
+
+    if (NAUTILUS_IS_RECENT_DIRECTORY (priv->directory))
+    {
+        nautilus_recent_directory_set_include_windows (NAUTILUS_RECENT_DIRECTORY (priv->directory),
+                                                       (nautilus_window_slot_get_mode (priv->slot) != NAUTILUS_MODE_BROWSE));
     }
 
     nautilus_file_unref (priv->directory_as_file);
