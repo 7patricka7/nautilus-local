@@ -170,7 +170,6 @@ get_mode_for_location (GFile *location)
     else if (nautilus_file_is_in_trash (file))
     {
         gboolean auto_emptied = g_settings_get_boolean (gnome_privacy_preferences, "remove-old-trash-files");
-
         return (auto_emptied ?
                 NAUTILUS_LOCATION_BANNER_TRASH_AUTO_EMPTIED :
                 NAUTILUS_LOCATION_BANNER_TRASH);
