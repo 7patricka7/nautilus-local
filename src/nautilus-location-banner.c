@@ -205,7 +205,7 @@ set_mode (AdwBanner                  *banner,
 
         case NAUTILUS_LOCATION_BANNER_SHARING:
         {
-            adw_banner_set_title (banner, _("Turn on File Sharing to share the contents of this folder over the network"));
+            adw_banner_set_title (banner, _("Put files in this folder to share them over the network"));
             button_label = _("Sharing Settings");
             callback = G_CALLBACK (on_sharing_clicked);
         }
