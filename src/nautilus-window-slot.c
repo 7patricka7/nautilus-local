@@ -1215,6 +1215,18 @@ action_stop (GSimpleAction *action,
 }
 
 static void
+action_unbookmark_current_directory (GSimpleAction *action,
+                                     GVariant      *state,
+                                     gpointer       user_data)
+{
+    NautilusWindowSlot *self = NAUTILUS_WINDOW_SLOT (user_data);
+    NautilusApplication *app = NAUTILUS_APPLICATION (g_application_get_default ());
+
+    nautilus_bookmark_list_delete_items_with_uri (nautilus_application_get_bookmarks (app),
+                                                  nautilus_window_slot_get_location_uri (self));
+}
+
+static void
 action_bookmark_current_directory (GSimpleAction *action,
                                    GVariant      *state,
                                    gpointer       user_data)
@@ -1269,6 +1281,7 @@ const GActionEntry slot_entries[] =
     { .name = "reload", .activate = action_reload },
     { .name = "stop", .activate = action_stop },
     { .name = "bookmark-current-directory", .activate = action_bookmark_current_directory },
+    { .name = "unbookmark-current-directory", .activate = action_unbookmark_current_directory },
     { .name = "star-current-directory", .activate = action_star_current_directory },
     { .name = "unstar-current-directory", .activate = action_unstar_current_directory },
 };
@@ -1290,7 +1303,7 @@ set_back_forward_accelerators (NautilusWindowSlot *self)
 }
 
 static void
-update_bookmark_action (NautilusWindowSlot *self)
+update_bookmark_actions (NautilusWindowSlot *self)
 {
     gboolean can_bookmark = FALSE;
     GFile *location = nautilus_window_slot_get_location (self);
@@ -1303,10 +1316,12 @@ update_bookmark_action (NautilusWindowSlot *self)
         can_bookmark = nautilus_bookmark_list_can_bookmark_location (bookmarks, location);
     }
 
-    GAction *action = g_action_map_lookup_action (G_ACTION_MAP (self->slot_action_group),
-                                                  "bookmark-current-directory");
-
-    g_simple_action_set_enabled (G_SIMPLE_ACTION (action), can_bookmark);
+    GAction *action_add = g_action_map_lookup_action (G_ACTION_MAP (self->slot_action_group),
+                                                      "bookmark-current-directory");
+    g_simple_action_set_enabled (G_SIMPLE_ACTION (action_add), can_bookmark);
+    GAction *action_remove = g_action_map_lookup_action (G_ACTION_MAP (self->slot_action_group),
+                                                         "unbookmark-current-directory");
+    g_simple_action_set_enabled (G_SIMPLE_ACTION (action_remove), !can_bookmark);
 }
 
 static void
@@ -1400,7 +1415,7 @@ nautilus_window_slot_init (NautilusWindowSlot *self)
 
     g_signal_connect_object (nautilus_application_get_bookmarks (NAUTILUS_APPLICATION (g_application_get_default ())),
                              "changed",
-                             G_CALLBACK (update_bookmark_action),
+                             G_CALLBACK (update_bookmark_actions),
                              self,
                              G_CONNECT_SWAPPED);
     g_signal_connect_object (nautilus_tag_manager_get (),
@@ -1641,7 +1656,7 @@ nautilus_window_slot_set_location (NautilusWindowSlot *self,
 
     nautilus_fd_holder_set_location (self->fd_holder, self->location);
     update_back_forward_actions (self);
-    update_bookmark_action (self);
+    update_bookmark_actions (self);
     update_star_unstar_actions (self);
 
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_LOCATION]);
