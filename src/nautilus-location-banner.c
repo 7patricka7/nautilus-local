@@ -185,9 +185,13 @@ static void
 update_trash_banner_sensitivity (AdwBanner *banner)
 {
     if (nautilus_trash_monitor_is_empty ())
+    {
         gtk_widget_set_sensitive (GTK_WIDGET (banner), FALSE);
+    }
     else
+    {
         gtk_widget_set_sensitive (GTK_WIDGET (banner), TRUE);
+    }
 }
 
 static void
@@ -241,7 +245,9 @@ set_mode (AdwBanner                  *banner,
             callback = G_CALLBACK (on_trash_clear_clicked);
 
             if (nautilus_trash_monitor_is_empty ())
+            {
                 banner_is_sensitive = FALSE;
+            }
 
             g_signal_connect_swapped (nautilus_trash_monitor_get (),
                                       "trash-state-changed",
@@ -279,7 +285,7 @@ set_mode (AdwBanner                  *banner,
 
     adw_banner_set_button_label (banner, button_label);
     adw_banner_set_revealed (banner, TRUE);
-    gtk_widget_set_sensitive((GtkWidget *)banner, banner_is_sensitive);
+    gtk_widget_set_sensitive (GTK_WIDGET (banner), banner_is_sensitive);
 
     if (callback != NULL)
     {
