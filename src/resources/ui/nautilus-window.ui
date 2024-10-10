@@ -86,6 +86,19 @@
       </item>
     </section>
   </menu>
+  <menu id="tab_overview_menu_model">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">New _Window</attribute>
+        <attribute name="action">app.clone-window</attribute>
+        <attribute name="verb-icon">window-new-symbolic</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">Re_store Closed Tab</attribute>
+        <attribute name="action">win.restore-tab</attribute>
+      </item>
+    </section>
+  </menu>
   <template class="NautilusWindow" parent="AdwApplicationWindow">
     <property name="width-request">360</property>
     <property name="height-request">380</property>
@@ -102,6 +115,7 @@
       <object class="AdwTabOverview" id="tab_overview">
         <property name="view">tab_view</property>
         <property name="enable-new-tab">True</property>
+        <property name="secondary-menu">tab_overview_menu_model</property>
         <signal name="create-tab" handler="create_tab_cb" swapped="yes"/>
         <property name="child">
           <object class="NautilusShortcutManager">
