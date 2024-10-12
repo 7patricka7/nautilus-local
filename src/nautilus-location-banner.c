@@ -181,15 +181,15 @@ get_mode_for_location (GFile *location)
 }
 
 static void
-update_trash_banner_sensitivity (AdwBanner *banner)
+update_trash_banner_visibility (AdwBanner *banner)
 {
     if (nautilus_trash_monitor_is_empty ())
     {
-        gtk_widget_set_sensitive (GTK_WIDGET (banner), FALSE);
+        adw_banner_set_revealed (banner, FALSE);
     }
     else
     {
-        gtk_widget_set_sensitive (GTK_WIDGET (banner), TRUE);
+        adw_banner_set_revealed (banner, TRUE);
     }
 }
 
@@ -198,8 +198,8 @@ set_mode (AdwBanner                  *banner,
           NautilusLocationBannerMode  mode)
 {
     const char *button_label = NULL;
-    gboolean banner_is_sensitive = TRUE;
     GCallback callback = NULL;
+    gboolean banner_is_revealed = TRUE;
 
     /* Reset signal handlers. */
     g_signal_handlers_disconnect_by_data (banner, &nautilus_location_banner_load);
@@ -239,18 +239,17 @@ set_mode (AdwBanner                  *banner,
         case NAUTILUS_LOCATION_BANNER_TRASH:
         {
             adw_banner_set_title (banner, "");
+            if (nautilus_trash_monitor_is_empty ())
+            {
+                banner_is_revealed = FALSE;
+            }
 
             button_label = _("_Empty Trash…");
             callback = G_CALLBACK (on_trash_clear_clicked);
 
-            if (nautilus_trash_monitor_is_empty ())
-            {
-                banner_is_sensitive = FALSE;
-            }
-
             g_signal_connect_swapped (nautilus_trash_monitor_get (),
                                       "trash-state-changed",
-                                      G_CALLBACK (update_trash_banner_sensitivity),
+                                      G_CALLBACK (update_trash_banner_visibility),
                                       banner);
             g_signal_connect_object (gnome_privacy_preferences,
                                      "changed::remove-old-trash-files",
@@ -283,8 +282,7 @@ set_mode (AdwBanner                  *banner,
     }
 
     adw_banner_set_button_label (banner, button_label);
-    adw_banner_set_revealed (banner, TRUE);
-    gtk_widget_set_sensitive (GTK_WIDGET (banner), banner_is_sensitive);
+    adw_banner_set_revealed (banner, banner_is_revealed);
 
     if (callback != NULL)
     {
