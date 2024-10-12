@@ -157,6 +157,12 @@
                 <property name="action-name">win.restore-tab</property>
               </object>
             </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes" context="shortcut window">Show All Tabs</property>
+                <property name="action-name">win.open-tab-overview</property>
+              </object>
+            </child>
           </object>
         </child>
         <child>
