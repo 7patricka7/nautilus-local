@@ -56,6 +56,9 @@
                                                 <style>
                                                   <class name="icon-dropshadow"/>
                                                 </style>
+                                                <accessibility>
+                                                  <relation name="labelled-by">name_value_label</relation>
+                                                </accessibility>
                                               </object>
                                             </property>
                                           </object>
@@ -497,6 +500,7 @@
                           <object class="AdwPreferencesGroup" id="extension_models_group">
                             <child>
                               <object class="GtkListBox" id="extension_models_list_box">
+                                <property name="visible">False</property>
                                 <property name="selection-mode">none</property>
                                 <style>
                                   <class name="boxed-list"/>

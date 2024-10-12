@@ -500,7 +500,6 @@ hover_timer (gpointer user_data)
     NautilusListBase *self = nautilus_view_cell_get_view (cell);
     NautilusListBasePrivate *priv = nautilus_list_base_get_instance_private (self);
     g_autoptr (NautilusViewItem) item = nautilus_view_cell_get_item (cell);
-    g_autoptr (GFile) location = NULL;
 
     priv->hover_timer_id = 0;
 
@@ -521,10 +520,12 @@ hover_timer (gpointer user_data)
         return G_SOURCE_REMOVE;
     }
 
-    location = nautilus_file_get_location (file);
-    nautilus_application_open_location_full (NAUTILUS_APPLICATION (g_application_get_default ()),
-                                             location, NAUTILUS_OPEN_FLAG_DONT_MAKE_ACTIVE,
-                                             NULL, NULL, NULL);
+    g_autoptr (GFile) location = nautilus_file_get_location (file);
+    NautilusWindowSlot *window_slot = NAUTILUS_WINDOW_SLOT (gtk_widget_get_ancestor (GTK_WIDGET (self),
+                                                                                     NAUTILUS_TYPE_WINDOW_SLOT));
+
+    nautilus_window_slot_open_location_full (window_slot, location,
+                                             NAUTILUS_OPEN_FLAG_DONT_MAKE_ACTIVE, NULL);
 
     return G_SOURCE_REMOVE;
 }
