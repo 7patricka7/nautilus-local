@@ -23,6 +23,8 @@
 #include <adwaita.h>
 #include <string.h>
 
+#include "glib-object.h"
+#include "glib.h"
 #include "nautilus-dbus-launcher.h"
 #include "nautilus-file-operations.h"
 #include "nautilus-file-utilities.h"
@@ -30,6 +32,7 @@
 #include "nautilus-location-banner.h"
 #include "nautilus-enum-types.h"
 #include "nautilus-scheme.h"
+#include "nautilus-trash-monitor.h"
 
 #define FILE_SHARING_SCHEMA_ID "org.gnome.desktop.file-sharing"
 
@@ -178,11 +181,25 @@ get_mode_for_location (GFile *location)
 }
 
 static void
+update_trash_banner_visibility (AdwBanner *banner)
+{
+    if (nautilus_trash_monitor_is_empty ())
+    {
+        adw_banner_set_revealed (banner, FALSE);
+    }
+    else
+    {
+        adw_banner_set_revealed (banner, TRUE);
+    }
+}
+
+static void
 set_mode (AdwBanner                  *banner,
           NautilusLocationBannerMode  mode)
 {
     const char *button_label = NULL;
     GCallback callback = NULL;
+    gboolean banner_is_revealed = TRUE;
 
     /* Reset signal handlers. */
     g_signal_handlers_disconnect_by_data (banner, &nautilus_location_banner_load);
@@ -222,9 +239,18 @@ set_mode (AdwBanner                  *banner,
         case NAUTILUS_LOCATION_BANNER_TRASH:
         {
             adw_banner_set_title (banner, "");
+            if (nautilus_trash_monitor_is_empty ())
+            {
+                banner_is_revealed = FALSE;
+            }
+
             button_label = _("_Empty Trash…");
             callback = G_CALLBACK (on_trash_clear_clicked);
 
+            g_signal_connect_swapped (nautilus_trash_monitor_get (),
+                                      "trash-state-changed",
+                                      G_CALLBACK (update_trash_banner_visibility),
+                                      banner);
             g_signal_connect_object (gnome_privacy_preferences,
                                      "changed::remove-old-trash-files",
                                      G_CALLBACK (on_remove_old_trash_files_changed),
@@ -256,7 +282,7 @@ set_mode (AdwBanner                  *banner,
     }
 
     adw_banner_set_button_label (banner, button_label);
-    adw_banner_set_revealed (banner, TRUE);
+    adw_banner_set_revealed (banner, banner_is_revealed);
 
     if (callback != NULL)
     {
