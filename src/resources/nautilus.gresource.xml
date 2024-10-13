@@ -54,5 +54,9 @@
     <file alias="info-outline-symbolic.svg" preprocess="xml-stripblanks">icons/info-outline-symbolic.svg</file>
     <file alias="nautilus-file-chooser-options-symbolic.svg" preprocess="xml-stripblanks">icons/nautilus-file-chooser-options-symbolic.svg</file>
     <file alias="funnel-outline-symbolic.svg" preprocess="xml-stripblanks">icons/funnel-outline-symbolic.svg</file>
+    <file alias="paper-symbolic.svg" preprocess="xml-stripblanks">icons/paper-symbolic.svg</file>
+    <file alias="rich-text-symbolic.svg" preprocess="xml-stripblanks">icons/rich-text-symbolic.svg</file>
+    <file alias="image-print-symbolic.svg" preprocess="xml-stripblanks">icons/image-print-symbolic.svg</file>
+    <file alias="cross-small-circle-outline-symbolic.svg" preprocess="xml-stripblanks">icons/cross-small-circle-outline-symbolic.svg</file>
   </gresource>
 </gresources>

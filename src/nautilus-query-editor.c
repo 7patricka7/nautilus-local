@@ -55,6 +55,7 @@ struct _NautilusQueryEditor
 
     GtkWidget *mime_types_tag;
     GtkWidget *date_range_tag;
+    GtkWidget *fts_tag;
 
     GCancellable *cancellable;
 
@@ -525,6 +526,7 @@ entry_changed_cb (GtkWidget           *entry,
 static GtkWidget *
 create_tag (NautilusQueryEditor *self,
             const gchar         *text,
+            gboolean             is_fts_button,
             GCallback            reset_callback)
 {
     GtkWidget *tag;
@@ -540,20 +542,27 @@ create_tag (NautilusQueryEditor *self,
     gtk_widget_set_margin_start (label, 12);
     gtk_box_append (GTK_BOX (tag), label);
 
-    button = gtk_button_new ();
-    gtk_button_set_icon_name (GTK_BUTTON (button), "window-close-symbolic");
-    gtk_widget_add_css_class (button, "flat");
-    gtk_widget_add_css_class (button, "circular");
-    g_signal_connect_object (button, "clicked",
-                             reset_callback, self->popover, G_CONNECT_SWAPPED);
-    gtk_box_append (GTK_BOX (tag), button);
-
+    if (is_fts_button == FALSE)
+    {
+        button = gtk_button_new ();
+        gtk_button_set_icon_name (GTK_BUTTON (button), "cross-small-circle-outline-symbolic");
+        gtk_widget_add_css_class (button, "flat");
+        gtk_widget_add_css_class (button, "circular");
+        g_signal_connect_object (button, "clicked",
+                                 reset_callback, self->popover, G_CONNECT_SWAPPED);
+        gtk_box_append (GTK_BOX (tag), button);
+    }
+    else
+    {
+        gtk_widget_set_margin_end (label, 12);
+    }
     return tag;
 }
 
 static void
 search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
                                       GPtrArray             *date_range,
+                                      const gchar           *datebutton_name,
                                       gpointer               user_data)
 {
     NautilusQueryEditor *editor;
@@ -575,14 +584,27 @@ search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
     {
         g_autofree gchar *text_for_date_range = NULL;
 
-        text_for_date_range = get_text_for_date_range (date_range, TRUE);
-        editor->date_range_tag = create_tag (editor,
-                                             text_for_date_range,
-                                             G_CALLBACK (nautilus_search_popover_reset_date_range));
-        gtk_box_append (GTK_BOX (editor->tags_box), editor->date_range_tag);
+        if (datebutton_name == NULL)
+        {
+            editor->date_range_tag = create_tag (editor,
+                                                 "Date Range",
+                                                 FALSE,
+                                                 G_CALLBACK (nautilus_search_popover_reset_date_range));
+        }
+        else
+        {
+            editor->date_range_tag = create_tag (editor,
+                                                 datebutton_name,
+                                                 FALSE,
+                                                 G_CALLBACK (nautilus_search_popover_reset_date_range));
+        }
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->date_range_tag, editor->fts_tag);
     }
 
     nautilus_query_set_date_range (editor->query, date_range);
+
+    /* We are searching using last modified */
+    nautilus_query_set_search_type (editor->query, NAUTILUS_QUERY_SEARCH_TYPE_LAST_MODIFIED);
 
     nautilus_query_editor_changed (editor);
     gtk_widget_set_visible (editor->tags_box,
@@ -592,6 +614,7 @@ search_popover_date_range_changed_cb (NautilusSearchPopover *popover,
 static void
 search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
                                      gint                   mimetype_group,
+                                     const gchar           *mimetype_button_name,
                                      const gchar           *mimetype,
                                      gpointer               user_data)
 {
@@ -620,9 +643,10 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
     {
         mimetypes = nautilus_mime_types_group_get_mimetypes (mimetype_group);
         editor->mime_types_tag = create_tag (editor,
-                                             nautilus_mime_types_group_get_name (mimetype_group),
+                                             mimetype_button_name,
+                                             FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_mime_types));
-        gtk_box_append (GTK_BOX (editor->tags_box), editor->mime_types_tag);
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->mime_types_tag, editor->fts_tag);
     }
     else
     {
@@ -634,33 +658,15 @@ search_popover_mime_type_changed_cb (NautilusSearchPopover *popover,
         display_name = g_content_type_get_description (mimetype);
         editor->mime_types_tag = create_tag (editor,
                                              display_name,
+                                             FALSE,
                                              G_CALLBACK (nautilus_search_popover_reset_mime_types));
-        gtk_box_append (GTK_BOX (editor->tags_box), editor->mime_types_tag);
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->mime_types_tag, editor->fts_tag);
     }
     nautilus_query_set_mime_types (editor->query, mimetypes);
 
     nautilus_query_editor_changed (editor);
     gtk_widget_set_visible (editor->tags_box,
                             (gtk_widget_get_first_child (editor->tags_box) != NULL));
-}
-
-static void
-search_popover_time_type_changed_cb (NautilusSearchPopover   *popover,
-                                     NautilusQuerySearchType  data,
-                                     gpointer                 user_data)
-{
-    NautilusQueryEditor *editor;
-
-    editor = NAUTILUS_QUERY_EDITOR (user_data);
-
-    if (editor->query == NULL)
-    {
-        create_query (editor);
-    }
-
-    nautilus_query_set_search_type (editor->query, data);
-
-    nautilus_query_editor_changed (editor);
 }
 
 static void
@@ -677,10 +683,39 @@ search_popover_fts_changed_cb (GObject    *popover,
         create_query (editor);
     }
 
+    if (editor->fts_tag != NULL)
+    {
+        gtk_box_remove (GTK_BOX (editor->tags_box), editor->fts_tag);
+        editor->fts_tag = NULL;
+    }
+
+    gboolean fts_enabled = nautilus_search_popover_get_fts_enabled (NAUTILUS_SEARCH_POPOVER (popover));
+    gboolean fts_sensitive = nautilus_search_popover_get_fts_sensitive (NAUTILUS_SEARCH_POPOVER (popover));
+
+    if (fts_sensitive)
+    {
+        if (fts_enabled)
+        {
+            editor->fts_tag = create_tag (editor,
+                                          _("Only Contents"),
+                                          TRUE,
+                                          NULL);
+        }
+        else
+        {
+            editor->fts_tag = create_tag (editor,
+                                          _("Only Filenames"),
+                                          TRUE,
+                                          NULL);
+        }
+        gtk_box_insert_child_after (GTK_BOX (editor->tags_box), editor->fts_tag, NULL);
+    }
+
     nautilus_query_set_search_content (editor->query,
                                        nautilus_search_popover_get_fts_enabled (NAUTILUS_SEARCH_POPOVER (popover)));
 
     nautilus_query_editor_changed (editor);
+    gtk_widget_set_visible (editor->tags_box, (gtk_widget_get_first_child (editor->tags_box) != NULL));
 }
 
 static void
@@ -792,8 +827,6 @@ nautilus_query_editor_init (NautilusQueryEditor *editor)
                       G_CALLBACK (search_popover_date_range_changed_cb), editor);
     g_signal_connect (editor->popover, "mime-type",
                       G_CALLBACK (search_popover_mime_type_changed_cb), editor);
-    g_signal_connect (editor->popover, "time-type",
-                      G_CALLBACK (search_popover_time_type_changed_cb), editor);
     g_signal_connect (editor->popover, "notify::fts-enabled",
                       G_CALLBACK (search_popover_fts_changed_cb), editor);
 }
